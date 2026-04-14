@@ -3,3 +3,7 @@ dist
 .vscode
 .DS_Store
 *.local
+
+# Jupyter Notebook checkpoints
+.ipynb_checkpoints/
+__pycache__/
