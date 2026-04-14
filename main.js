@@ -1,0 +1,287 @@
+// Get all markdown files dynamically from the data folder using Vite
+const markdownFiles = import.meta.glob('./data/*.md', { query: '?raw', import: 'default', eager: true });
+
+function parseMarkdownData() {
+  const coursesMap = new Map();
+
+  for (const path in markdownFiles) {
+    const rawMarkdown = markdownFiles[path];
+    const lines = rawMarkdown.split('\n');
+    let isTable = false;
+
+    for (const line of lines) {
+      if (line.trim().startsWith('| 課程代碼 |')) {
+        isTable = true;
+        continue;
+      }
+      if (isTable && line.trim().startsWith('| :---')) {
+        continue;
+      }
+      if (isTable && line.trim().startsWith('|')) {
+        const cols = line.split('|').map(s => s.trim());
+        // cols[0] is empty, cols[1] -> ID, cols[2] -> Name, cols[3] -> Time, cols[4] -> Meet Link, cols[5] -> Speaker, cols[6] is empty
+        if (cols.length >= 6) {
+          const rawIdStr = cols[1]; // e.g. [5547097](https://...)
+          const idMatch = rawIdStr.match(/\[(\d+)\]/);
+          if (!idMatch) continue;
+          
+          const id = idMatch[1];
+          const rawUrlMatch = rawIdStr.match(/\((https?:\/\/[^\)]+)\)/);
+          const sourceUrl = rawUrlMatch ? rawUrlMatch[1] : '';
+
+          const name = cols[2].replace(/\*\*/g, '');
+          const rawTime = cols[3].replace(/\*\*/g, ''); // e.g. 2026/04/12(日) 09:00~12:00
+          
+          const dateMatch = rawTime.match(/(\d{4}\/\d{2}\/\d{2})/);
+          const timeRangeMatch = rawTime.match(/(\d{2}:\d{2}.*)$/);
+
+          const dateStr = dateMatch ? dateMatch[1] : '';
+          const timeRange = timeRangeMatch ? timeRangeMatch[1].trim() : '';
+          const startTime = timeRange.match(/(\d{2}:\d{2})/) ? timeRange.match(/(\d{2}:\d{2})/)[1] : '';
+
+          const meetLink = cols[4];
+          let meetLinkHtml = meetLink;
+          let rawLink = '';
+          if (meetLink.startsWith('http')) {
+            rawLink = meetLink;
+            meetLinkHtml = `<a href="${meetLink}" target="_blank" rel="noopener noreferrer">${meetLink}</a>`;
+          } else if (meetLink.includes('meet.google.com')) {
+            const m = meetLink.match(/(https?:\/\/meet\.google\.com\/[a-z-]+)/);
+            if (m) {
+              rawLink = m[1];
+              meetLinkHtml = `<a href="${rawLink}" target="_blank" rel="noopener noreferrer">${rawLink}</a>`;
+            }
+          }
+          
+          const speaker = cols[5];
+
+          // Deduplicate by course ID
+          if (!coursesMap.has(id)) {
+            coursesMap.set(id, {
+              id,
+              name,
+              rawTime,
+              dateStr,
+              startTime,
+              timeRange,
+              meetLinkHtml,
+              rawLink,
+              speaker,
+              sourceUrl
+            });
+          }
+        }
+      } else if (isTable && line.trim() === '') {
+        isTable = false; // End of table
+      }
+    }
+  }
+
+  return Array.from(coursesMap.values());
+}
+
+// LocalStorage Management
+function getInterestedCourses() {
+  const data = localStorage.getItem('interested_courses');
+  return data ? JSON.parse(data) : {};
+}
+
+function saveInterestedCourses(data) {
+  localStorage.setItem('interested_courses', JSON.stringify(data));
+}
+
+function cleanupExpiredInterests() {
+  const interested = getInterestedCourses();
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  let changed = false;
+
+  for (const id in interested) {
+    const courseDate = new Date(interested[id]);
+    if (courseDate < today) {
+      delete interested[id];
+      changed = true;
+    }
+  }
+
+  if (changed) saveInterestedCourses(interested);
+}
+
+function initCalendar() {
+  cleanupExpiredInterests();
+  const courses = parseMarkdownData();
+  const interested = getInterestedCourses();
+  const calendarEl = document.getElementById('calendar');
+  const modalOverlay = document.getElementById('modalOverlay');
+  const modalClose = document.getElementById('modalClose');
+  const modalBody = document.getElementById('modalBody');
+
+  // To test effectively with the provided markdown, let's assume "today" based on the data.
+  // The system prompt says current time is 2026-04-14, which perfectly aligns.
+  const today = new Date();
+  
+  // Find Monday of the current week (Week 1)
+  let dayOfWeek = today.getDay(); // 0 is Sunday, 1 is Monday ... 6 is Saturday
+  let diffToMonday = dayOfWeek === 0 ? -6 : 1 - dayOfWeek;
+  const currentWeekMonday = new Date(today);
+  currentWeekMonday.setDate(today.getDate() + diffToMonday);
+  currentWeekMonday.setHours(0, 0, 0, 0);
+
+  // Week 1 starts this Monday
+  const startDate = new Date(currentWeekMonday);
+
+  // Render 21 days (3 weeks)
+  const daysHTML = [];
+  const startTimestamp = startDate.getTime();
+
+  for (let i = 0; i < 21; i++) {
+    const currentDay = new Date(startTimestamp + i * 24 * 60 * 60 * 1000);
+    const dateString = `${currentDay.getFullYear()}/${String(currentDay.getMonth() + 1).padStart(2, '0')}/${String(currentDay.getDate()).padStart(2, '0')}`;
+    const dayOfMonth = currentDay.getDate();
+    
+    let classes = 'calendar-day';
+    
+    // Check if it's today
+    if (currentDay.getFullYear() === today.getFullYear() &&
+        currentDay.getMonth() === today.getMonth() &&
+        currentDay.getDate() === today.getDate()) {
+      classes += ' today';
+    }
+
+    // Courses for this date
+    const dayCourses = courses.filter(c => c.dateStr === dateString);
+    
+    // Sort by start time if available
+    dayCourses.sort((a, b) => (a.startTime || '24:00').localeCompare(b.startTime || '24:00'));
+
+    let coursesHTML = '';
+    dayCourses.forEach(course => {
+      // Check if interested
+      const isInterested = !!interested[course.id];
+      
+      // Create a safely encoded JSON string for data attribute
+      const encodedCourse = encodeURIComponent(JSON.stringify(course));
+      const displayTime = course.timeRange ? course.timeRange : '';
+      
+      // Remove prefixes like [分類] or 【主題】 for the calendar display
+      const displayName = course.name.replace(/^([\[【].*?[\]】]\s*)+/g, '').trim();
+      
+      coursesHTML += `
+        <div class="course-item ${isInterested ? 'interested' : ''}" data-course="${encodedCourse}" data-id="${course.id}">
+          <div class="course-title" title="${course.name}">${displayName}</div>
+          ${displayTime ? `<div class="course-time">${displayTime}</div>` : ''}
+        </div>
+      `;
+    });
+
+    daysHTML.push(`
+      <div class="${classes}">
+        <div class="date-header">
+          <span class="date-number">${dayOfMonth === 1 ? (currentDay.getMonth() + 1) + '月 ' + dayOfMonth : dayOfMonth}</span>
+        </div>
+        <div class="courses-container">
+          ${coursesHTML}
+        </div>
+      </div>
+    `);
+  }
+
+  calendarEl.innerHTML = daysHTML.join('');
+
+  // Event delegation for course clicks
+  calendarEl.addEventListener('click', (e) => {
+    const item = e.target.closest('.course-item');
+    if (item) {
+      const courseStr = decodeURIComponent(item.getAttribute('data-course'));
+      const course = JSON.parse(courseStr);
+      showModal(course);
+    }
+  });
+
+  function showModal(course) {
+    const interested = getInterestedCourses();
+    const isInterested = !!interested[course.id];
+
+    modalBody.innerHTML = `
+      <div class="detail-value title">${course.name}</div>
+      <div class="modal-header-actions">
+        <button id="btnInterested" class="btn-action ${isInterested ? 'active' : ''}">
+          <span class="icon">${isInterested ? '★' : '☆'}</span> 有興趣
+        </button>
+        <button id="btnCopy" class="btn-action">
+          <span class="icon">📋</span> Copy
+        </button>
+      </div>
+      <div class="detail-row">
+        <div class="detail-label">課程代碼</div>
+        <div class="detail-value">
+          <a href="${course.sourceUrl}" target="_blank">${course.id}</a>
+        </div>
+      </div>
+      <div class="detail-row">
+        <div class="detail-label">研習時間</div>
+        <div class="detail-value">${course.rawTime}</div>
+      </div>
+      <div class="detail-row">
+        <div class="detail-label">主講人</div>
+        <div class="detail-value">${course.speaker}</div>
+      </div>
+      <div class="detail-row">
+        <div class="detail-label">Google Meet / 線上連結</div>
+        <div class="detail-value">${course.meetLinkHtml}</div>
+      </div>
+    `;
+    modalOverlay.classList.add('active');
+
+    // Button event listeners
+    document.getElementById('btnInterested').onclick = () => {
+      const currentInterested = getInterestedCourses();
+      const btn = document.getElementById('btnInterested');
+      const courseEl = document.querySelector(`.course-item[data-id="${course.id}"]`);
+
+      if (currentInterested[course.id]) {
+        delete currentInterested[course.id];
+        btn.classList.remove('active');
+        btn.querySelector('.icon').innerText = '☆';
+        if (courseEl) courseEl.classList.remove('interested');
+      } else {
+        currentInterested[course.id] = course.dateStr;
+        btn.classList.add('active');
+        btn.querySelector('.icon').innerText = '★';
+        if (courseEl) courseEl.classList.add('interested');
+      }
+      saveInterestedCourses(currentInterested);
+    };
+
+    document.getElementById('btnCopy').onclick = async () => {
+      const link = course.rawLink || 'http://tbd/tbd';
+      const cleanName = course.name.replace(/^([\[【].*?[\]】]\s*)+/g, '').trim();
+      const textToCopy = `課程: ${cleanName}
+時間: ${course.dateStr} ${course.timeRange}
+連結: ${link}
+主講: ${course.speaker}`;
+      
+      try {
+        await navigator.clipboard.writeText(textToCopy);
+        const btn = document.getElementById('btnCopy');
+        const originalText = btn.innerHTML;
+        btn.innerHTML = '<span class="icon">✅</span> Copied!';
+        setTimeout(() => { btn.innerHTML = originalText; }, 2000);
+      } catch (err) {
+        console.error('Failed to copy: ', err);
+      }
+    };
+  }
+
+  modalClose.addEventListener('click', () => {
+    modalOverlay.classList.remove('active');
+  });
+
+  modalOverlay.addEventListener('click', (e) => {
+    if (e.target === modalOverlay) {
+      modalOverlay.classList.remove('active');
+    }
+  });
+}
+
+document.addEventListener('DOMContentLoaded', initCalendar);
