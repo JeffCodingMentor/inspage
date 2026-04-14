@@ -3,4 +3,3 @@ dist
 .vscode
 .DS_Store
 *.local
-package-lock.json
