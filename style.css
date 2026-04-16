@@ -281,6 +281,38 @@ body {
   color: var(--color-text);
 }
 
+.modal-nav-btn {
+  position: absolute;
+  top: 1.5rem;
+  background: none;
+  border: none;
+  font-size: 0.95rem;
+  font-weight: 500;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  transition: color 0.2s;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.modal-nav-btn:hover:not(:disabled) {
+  color: var(--color-text);
+}
+
+.modal-nav-btn:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+}
+
+.modal-prev {
+  left: 2.5rem;
+}
+
+.modal-next {
+  right: 4rem;
+}
+
 .detail-row {
   margin-bottom: 1.2rem;
   border-bottom: 1px solid var(--color-border);
@@ -312,6 +344,7 @@ body {
   font-size: 1.5rem;
   font-weight: 700;
   color: var(--color-primary);
+  margin-top: 1rem;
   margin-bottom: 1.5rem;
   line-height: 1.3;
 }

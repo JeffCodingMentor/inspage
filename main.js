@@ -234,10 +234,23 @@ async function initCalendar() {
   });
 
   function showModal(course) {
+    const dayCourses = courses.filter(c => c.dateStr === course.dateStr);
+    dayCourses.sort((a, b) => (a.startTime || '24:00').localeCompare(b.startTime || '24:00'));
+    const currentIndex = dayCourses.findIndex(c => c.id === course.id);
+    const prevCourse = currentIndex > 0 ? dayCourses[currentIndex - 1] : null;
+    const nextCourse = currentIndex < dayCourses.length - 1 ? dayCourses[currentIndex + 1] : null;
+
     const interested = getInterestedCourses();
     const isInterested = !!interested[course.id];
 
     modalBody.innerHTML = `
+      <button id="btnPrevCourse" class="modal-nav-btn modal-prev" ${!prevCourse ? 'disabled' : ''}>
+        &lsaquo; 上一筆
+      </button>
+      <button id="btnNextCourse" class="modal-nav-btn modal-next" ${!nextCourse ? 'disabled' : ''}>
+        下一筆 &rsaquo;
+      </button>
+
       <div class="detail-value title">${course.name}</div>
       <div class="modal-header-actions">
         <button id="btnInterested" class="btn-action ${isInterested ? 'active' : ''}">
@@ -306,6 +319,13 @@ async function initCalendar() {
         console.error('Failed to copy: ', err);
       }
     };
+
+    if (prevCourse) {
+      document.getElementById('btnPrevCourse').onclick = () => showModal(prevCourse);
+    }
+    if (nextCourse) {
+      document.getElementById('btnNextCourse').onclick = () => showModal(nextCourse);
+    }
   }
 
   modalClose.addEventListener('click', () => {
