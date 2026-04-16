@@ -7,3 +7,7 @@ dist
 # Jupyter Notebook checkpoints
 .ipynb_checkpoints/
 __pycache__/
+
+# Local scripts and notebooks
+automation/
+*.ipynb
