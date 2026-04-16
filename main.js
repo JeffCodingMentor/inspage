@@ -1,80 +1,111 @@
-// Get all markdown files dynamically from the data folder using Vite
-const markdownFiles = import.meta.glob('./data/*.md', { query: '?raw', import: 'default', eager: true });
+const GITHUB_API_URL = "https://api.github.com/repos/JeffCodingMentor/inspage/contents/data";
 
-function parseMarkdownData() {
+async function fetchCoursesDynamically(cutoffTime) {
   const coursesMap = new Map();
+  try {
+    const response = await fetch(GITHUB_API_URL);
+    if (!response.ok) throw new Error("Failed to fetch file list from GitHub");
+    const files = await response.json();
+    
+    // Filter markdown files and sort by name descending (newest first)
+    const mdFiles = files.filter(f => f.name.endsWith('.md'))
+                         .sort((a, b) => b.name.localeCompare(a.name));
 
-  for (const path in markdownFiles) {
-    const rawMarkdown = markdownFiles[path];
-    const lines = rawMarkdown.split('\n');
-    let isTable = false;
+    for (const file of mdFiles) {
+      const fileRes = await fetch(file.download_url);
+      if (!fileRes.ok) continue;
+      const rawMarkdown = await fileRes.text();
+      
+      const lines = rawMarkdown.split('\n');
+      let isTable = false;
+      let hasValidCourse = false;
+      let allCoursesAreOld = true;
+      
+      for (const line of lines) {
+        if (line.trim().startsWith('| 課程代碼 |')) {
+          isTable = true;
+          continue;
+        }
+        if (isTable && line.trim().startsWith('| :---')) {
+          continue;
+        }
+        if (isTable && line.trim().startsWith('|')) {
+          const cols = line.split('|').map(s => s.trim());
+          // cols[0] is empty, cols[1] -> ID, cols[2] -> Name, cols[3] -> Time, cols[4] -> Meet Link, cols[5] -> Speaker, cols[6] is empty
+          if (cols.length >= 6) {
+            const rawIdStr = cols[1]; // e.g. [5547097](https://...)
+            const idMatch = rawIdStr.match(/\[(\d+)\]/);
+            if (!idMatch) continue;
+            
+            const id = idMatch[1];
+            const rawUrlMatch = rawIdStr.match(/\((https?:\/\/[^\)]+)\)/);
+            const sourceUrl = rawUrlMatch ? rawUrlMatch[1] : '';
 
-    for (const line of lines) {
-      if (line.trim().startsWith('| 課程代碼 |')) {
-        isTable = true;
-        continue;
-      }
-      if (isTable && line.trim().startsWith('| :---')) {
-        continue;
-      }
-      if (isTable && line.trim().startsWith('|')) {
-        const cols = line.split('|').map(s => s.trim());
-        // cols[0] is empty, cols[1] -> ID, cols[2] -> Name, cols[3] -> Time, cols[4] -> Meet Link, cols[5] -> Speaker, cols[6] is empty
-        if (cols.length >= 6) {
-          const rawIdStr = cols[1]; // e.g. [5547097](https://...)
-          const idMatch = rawIdStr.match(/\[(\d+)\]/);
-          if (!idMatch) continue;
-          
-          const id = idMatch[1];
-          const rawUrlMatch = rawIdStr.match(/\((https?:\/\/[^\)]+)\)/);
-          const sourceUrl = rawUrlMatch ? rawUrlMatch[1] : '';
+            const name = cols[2].replace(/\*\*/g, '');
+            const rawTime = cols[3].replace(/\*\*/g, ''); // e.g. 2026/04/12(日) 09:00~12:00
+            
+            const dateMatch = rawTime.match(/(\d{4}\/\d{2}\/\d{2})/);
+            const timeRangeMatch = rawTime.match(/(\d{2}:\d{2}.*)$/);
 
-          const name = cols[2].replace(/\*\*/g, '');
-          const rawTime = cols[3].replace(/\*\*/g, ''); // e.g. 2026/04/12(日) 09:00~12:00
-          
-          const dateMatch = rawTime.match(/(\d{4}\/\d{2}\/\d{2})/);
-          const timeRangeMatch = rawTime.match(/(\d{2}:\d{2}.*)$/);
+            const dateStr = dateMatch ? dateMatch[1] : '';
+            const timeRange = timeRangeMatch ? timeRangeMatch[1].trim() : '';
+            const startTime = timeRange.match(/(\d{2}:\d{2})/) ? timeRange.match(/(\d{2}:\d{2})/)[1] : '';
 
-          const dateStr = dateMatch ? dateMatch[1] : '';
-          const timeRange = timeRangeMatch ? timeRangeMatch[1].trim() : '';
-          const startTime = timeRange.match(/(\d{2}:\d{2})/) ? timeRange.match(/(\d{2}:\d{2})/)[1] : '';
+            const meetLink = cols[4];
+            let meetLinkHtml = meetLink;
+            let rawLink = '';
+            if (meetLink.startsWith('http')) {
+              rawLink = meetLink;
+              meetLinkHtml = `<a href="${meetLink}" target="_blank" rel="noopener noreferrer">${meetLink}</a>`;
+            } else if (meetLink.includes('meet.google.com')) {
+              const m = meetLink.match(/(https?:\/\/meet\.google\.com\/[a-z-]+)/);
+              if (m) {
+                rawLink = m[1];
+                meetLinkHtml = `<a href="${rawLink}" target="_blank" rel="noopener noreferrer">${rawLink}</a>`;
+              }
+            }
+            
+            const speaker = cols[5];
 
-          const meetLink = cols[4];
-          let meetLinkHtml = meetLink;
-          let rawLink = '';
-          if (meetLink.startsWith('http')) {
-            rawLink = meetLink;
-            meetLinkHtml = `<a href="${meetLink}" target="_blank" rel="noopener noreferrer">${meetLink}</a>`;
-          } else if (meetLink.includes('meet.google.com')) {
-            const m = meetLink.match(/(https?:\/\/meet\.google\.com\/[a-z-]+)/);
-            if (m) {
-              rawLink = m[1];
-              meetLinkHtml = `<a href="${rawLink}" target="_blank" rel="noopener noreferrer">${rawLink}</a>`;
+            // Check if course is valid and update our tracking flags
+            if (dateStr) {
+              const courseDate = new Date(dateStr).getTime();
+              hasValidCourse = true;
+              if (courseDate >= cutoffTime) {
+                allCoursesAreOld = false;
+              }
+            }
+
+            // Deduplicate by course ID
+            if (!coursesMap.has(id)) {
+              coursesMap.set(id, {
+                id,
+                name,
+                rawTime,
+                dateStr,
+                startTime,
+                timeRange,
+                meetLinkHtml,
+                rawLink,
+                speaker,
+                sourceUrl
+              });
             }
           }
-          
-          const speaker = cols[5];
-
-          // Deduplicate by course ID
-          if (!coursesMap.has(id)) {
-            coursesMap.set(id, {
-              id,
-              name,
-              rawTime,
-              dateStr,
-              startTime,
-              timeRange,
-              meetLinkHtml,
-              rawLink,
-              speaker,
-              sourceUrl
-            });
-          }
+        } else if (isTable && line.trim() === '') {
+          isTable = false; // End of table
         }
-      } else if (isTable && line.trim() === '') {
-        isTable = false; // End of table
+      }
+
+      // If we found courses in this file, and EVERY single one was older than the cutoff time
+      // we can comfortably stop fetching any older historical files to save time and bandwidth.
+      if (hasValidCourse && allCoursesAreOld) {
+        console.log(`Stopping fetch because file ${file.name} contains only courses older than the calendar start date.`);
+        break;
       }
     }
+  } catch (error) {
+    console.error("Error fetching courses from GitHub:", error);
   }
 
   return Array.from(coursesMap.values());
@@ -107,17 +138,17 @@ function cleanupExpiredInterests() {
   if (changed) saveInterestedCourses(interested);
 }
 
-function initCalendar() {
+async function initCalendar() {
   cleanupExpiredInterests();
-  const courses = parseMarkdownData();
-  const interested = getInterestedCourses();
+  
   const calendarEl = document.getElementById('calendar');
   const modalOverlay = document.getElementById('modalOverlay');
   const modalClose = document.getElementById('modalClose');
   const modalBody = document.getElementById('modalBody');
 
-  // To test effectively with the provided markdown, let's assume "today" based on the data.
-  // The system prompt says current time is 2026-04-14, which perfectly aligns.
+  // Insert a simple loading indicator
+  calendarEl.innerHTML = '<div class="calendar-day" style="width: 100%; border: none; grid-column: 1 / -1; height: 100px; display: flex; align-items: center; justify-content: center; color: var(--text-muted);">正在載入最新課程資料...</div>';
+
   const today = new Date();
   
   // Find Monday of the current week (Week 1)
@@ -129,6 +160,10 @@ function initCalendar() {
 
   // Week 1 starts this Monday
   const startDate = new Date(currentWeekMonday);
+  
+  // Fetch courses dynamically from GitHub
+  const courses = await fetchCoursesDynamically(startDate.getTime());
+  const interested = getInterestedCourses();
 
   // Render 21 days (3 weeks)
   const daysHTML = [];
