@@ -1,7 +1,21 @@
 const GITHUB_API_URL = "https://api.github.com/repos/JeffCodingMentor/inspage/contents/data";
 
-async function fetchCoursesDynamically(cutoffTime) {
+async function fetchCoursesDynamically() {
   const coursesMap = new Map();
+  
+  // Default to current week's Monday if no data found
+  const today = new Date();
+  let dayOfWeek = today.getDay();
+  let diffToMonday = dayOfWeek === 0 ? -6 : 1 - dayOfWeek;
+  const currentWeekMonday = new Date(today);
+  currentWeekMonday.setDate(today.getDate() + diffToMonday);
+  currentWeekMonday.setHours(0, 0, 0, 0);
+  
+  let startDate = new Date(currentWeekMonday);
+  let dynamicCutoffTime = startDate.getTime();
+  let isFirstValidFile = true;
+  let totalWeeks = 3;
+
   try {
     const response = await fetch(GITHUB_API_URL);
     if (!response.ok) throw new Error("Failed to fetch file list from GitHub");
@@ -20,6 +34,8 @@ async function fetchCoursesDynamically(cutoffTime) {
       let isTable = false;
       let hasValidCourse = false;
       let allCoursesAreOld = true;
+      let fileMaxDate = 0;
+      let fileCourses = [];
       
       for (const line of lines) {
         if (line.trim().startsWith('| 課程代碼 |')) {
@@ -67,39 +83,65 @@ async function fetchCoursesDynamically(cutoffTime) {
             
             const speaker = cols[5];
 
+            let courseDate = 0;
             // Check if course is valid and update our tracking flags
             if (dateStr) {
-              const courseDate = new Date(dateStr).getTime();
+              courseDate = new Date(dateStr).getTime();
               hasValidCourse = true;
-              if (courseDate >= cutoffTime) {
-                allCoursesAreOld = false;
+              if (courseDate > fileMaxDate) {
+                fileMaxDate = courseDate;
               }
             }
 
-            // Deduplicate by course ID
-            if (!coursesMap.has(id)) {
-              coursesMap.set(id, {
-                id,
-                name,
-                rawTime,
-                dateStr,
-                startTime,
-                timeRange,
-                meetLinkHtml,
-                rawLink,
-                speaker,
-                sourceUrl
-              });
-            }
+            fileCourses.push({
+              id,
+              name,
+              rawTime,
+              dateStr,
+              startTime,
+              timeRange,
+              meetLinkHtml,
+              rawLink,
+              speaker,
+              sourceUrl,
+              courseDate
+            });
           }
         } else if (isTable && line.trim() === '') {
           isTable = false; // End of table
         }
       }
 
+      // If we found valid courses in this first file, set the dynamic window
+      if (isFirstValidFile && hasValidCourse) {
+        const maxD = new Date(fileMaxDate);
+        let maxDWeekDay = maxD.getDay();
+        let maxDDiffToMonday = maxDWeekDay === 0 ? -6 : 1 - maxDWeekDay;
+        const maxWeekMonday = new Date(maxD);
+        maxWeekMonday.setDate(maxD.getDate() + maxDDiffToMonday);
+        maxWeekMonday.setHours(0, 0, 0, 0);
+
+        let diffMs = maxWeekMonday.getTime() - startDate.getTime();
+        let diffWeeks = Math.round(diffMs / (7 * 24 * 60 * 60 * 1000));
+        totalWeeks = Math.max(3, diffWeeks + 1);
+        
+        isFirstValidFile = false;
+      }
+
+      if (hasValidCourse) {
+        for (const c of fileCourses) {
+          if (c.courseDate >= dynamicCutoffTime) {
+            allCoursesAreOld = false;
+          }
+          if (!coursesMap.has(c.id)) {
+            coursesMap.set(c.id, c);
+          }
+        }
+      }
+
       // If we found courses in this file, and EVERY single one was older than the cutoff time
       // we can comfortably stop fetching any older historical files to save time and bandwidth.
-      if (hasValidCourse && allCoursesAreOld) {
+      if (!isFirstValidFile && hasValidCourse && allCoursesAreOld) {
         console.log(`Stopping fetch because file ${file.name} contains only courses older than the calendar start date.`);
         break;
       }
@@ -108,7 +150,7 @@ async function fetchCoursesDynamically(cutoffTime) {
     console.error("Error fetching courses from GitHub:", error);
   }
 
-  return Array.from(coursesMap.values());
+  return { courses: Array.from(coursesMap.values()), startDate, totalWeeks };
 }
 
 // LocalStorage Management
@@ -151,25 +193,16 @@ async function initCalendar() {
 
   const today = new Date();
   
-  // Find Monday of the current week (Week 1)
-  let dayOfWeek = today.getDay(); // 0 is Sunday, 1 is Monday ... 6 is Saturday
-  let diffToMonday = dayOfWeek === 0 ? -6 : 1 - dayOfWeek;
-  const currentWeekMonday = new Date(today);
-  currentWeekMonday.setDate(today.getDate() + diffToMonday);
-  currentWeekMonday.setHours(0, 0, 0, 0);
-
-  // Week 1 starts this Monday
-  const startDate = new Date(currentWeekMonday);
-  
-  // Fetch courses dynamically from GitHub
-  const courses = await fetchCoursesDynamically(startDate.getTime());
+  // Fetch courses dynamically from GitHub and get the computed start date
+  const { courses, startDate, totalWeeks } = await fetchCoursesDynamically();
   const interested = getInterestedCourses();
 
-  // Render 21 days (3 weeks)
+  // Render dynamic days
   const daysHTML = [];
   const startTimestamp = startDate.getTime();
+  const totalDays = totalWeeks * 7;
 
-  for (let i = 0; i < 21; i++) {
+  for (let i = 0; i < totalDays; i++) {
     const currentDay = new Date(startTimestamp + i * 24 * 60 * 60 * 1000);
     const dateString = `${currentDay.getFullYear()}/${String(currentDay.getMonth() + 1).padStart(2, '0')}/${String(currentDay.getDate()).padStart(2, '0')}`;
     const dayOfMonth = currentDay.getDate();
