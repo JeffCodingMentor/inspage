@@ -38,41 +38,59 @@ async function fetchCoursesDynamically() {
       let fileCourses = [];
       
       for (const line of lines) {
-        if (line.trim().startsWith('| 課程代碼 |')) {
+        const trimmed = line.trim();
+        // Support flexible table header names (e.g. 課程代碼, 研習課程代碼, 研習代碼)
+        if (trimmed.startsWith('|') && (trimmed.includes('代碼') || trimmed.includes('課程'))) {
           isTable = true;
           continue;
         }
-        if (isTable && line.trim().startsWith('| :---')) {
+        if (isTable && trimmed.startsWith('| :---')) {
           continue;
         }
-        if (isTable && line.trim().startsWith('|')) {
-          const cols = line.split('|').map(s => s.trim());
-          // cols[0] is empty, cols[1] -> ID, cols[2] -> Name, cols[3] -> Time, cols[4] -> Meet Link, cols[5] -> Speaker, cols[6] is empty
+        if (isTable && trimmed.startsWith('|')) {
+          const cols = trimmed.split('|').map(s => s.trim());
           if (cols.length >= 6) {
-            const rawIdStr = cols[1]; // e.g. [5547097](https://...)
+            const rawIdStr = cols[1]; // e.g. [5547097](https://...) or 5547097
+            let id = '';
+            let sourceUrl = '';
+
             const idMatch = rawIdStr.match(/\[(\d+)\]/);
-            if (!idMatch) continue;
-            
-            const id = idMatch[1];
-            const rawUrlMatch = rawIdStr.match(/\((https?:\/\/[^\)]+)\)/);
-            const sourceUrl = rawUrlMatch ? rawUrlMatch[1] : '';
+            if (idMatch) {
+              id = idMatch[1];
+              const rawUrlMatch = rawIdStr.match(/\((https?:\/\/[^\)]+)\)/);
+              sourceUrl = rawUrlMatch ? rawUrlMatch[1] : '';
+            } else {
+              const pureDigits = rawIdStr.match(/(\d{7})/);
+              if (pureDigits) id = pureDigits[1];
+            }
+
+            if (!id) continue;
 
             const name = cols[2].replace(/\*\*/g, '');
             const rawTime = cols[3].replace(/\*\*/g, ''); // e.g. 2026/04/12(日) 09:00~12:00
             
-            const dateMatch = rawTime.match(/(\d{4}\/\d{2}\/\d{2})/);
-            const timeRangeMatch = rawTime.match(/(\d{2}:\d{2}.*)$/);
+            // Flexible date matching for YYYY/MM/DD or YYYY-MM-DD (with 1 or 2 digits month/day)
+            const dateMatch = rawTime.match(/(\d{4})[\/\-](\d{1,2})[\/\-](\d{1,2})/);
+            let dateStr = '';
+            if (dateMatch) {
+              const yyyy = dateMatch[1];
+              const mm = String(dateMatch[2]).padStart(2, '0');
+              const dd = String(dateMatch[3]).padStart(2, '0');
+              dateStr = `${yyyy}/${mm}/${dd}`;
+            }
 
-            const dateStr = dateMatch ? dateMatch[1] : '';
+            const timeRangeMatch = rawTime.match(/(\d{2}:\d{2}.*)$/);
             const timeRange = timeRangeMatch ? timeRangeMatch[1].trim() : '';
             const startTime = timeRange.match(/(\d{2}:\d{2})/) ? timeRange.match(/(\d{2}:\d{2})/)[1] : '';
 
             const meetLink = cols[4];
             let meetLinkHtml = meetLink;
             let rawLink = '';
-            if (meetLink.startsWith('http')) {
-              rawLink = meetLink;
-              meetLinkHtml = `<a href="${meetLink}" target="_blank" rel="noopener noreferrer">${meetLink}</a>`;
+            
+            const linkUrlMatch = meetLink.match(/\((https?:\/\/[^\)]+)\)/) || meetLink.match(/(https?:\/\/[^\s\)]+)/);
+            if (linkUrlMatch) {
+              rawLink = linkUrlMatch[1];
+              meetLinkHtml = `<a href="${rawLink}" target="_blank" rel="noopener noreferrer">${rawLink}</a>`;
             } else if (meetLink.includes('meet.google.com')) {
               const m = meetLink.match(/(https?:\/\/meet\.google\.com\/[a-z-]+)/);
               if (m) {
@@ -84,12 +102,14 @@ async function fetchCoursesDynamically() {
             const speaker = cols[5];
 
             let courseDate = 0;
-            // Check if course is valid and update our tracking flags
             if (dateStr) {
-              courseDate = new Date(dateStr).getTime();
-              hasValidCourse = true;
-              if (courseDate > fileMaxDate) {
-                fileMaxDate = courseDate;
+              const parsedDate = new Date(dateStr.replace(/\//g, '-'));
+              if (!isNaN(parsedDate.getTime())) {
+                courseDate = parsedDate.getTime();
+                hasValidCourse = true;
+                if (courseDate > fileMaxDate) {
+                  fileMaxDate = courseDate;
+                }
               }
             }
 
