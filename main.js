@@ -39,13 +39,9 @@ async function fetchCoursesDynamically() {
       
       for (const line of lines) {
         const trimmed = line.trim();
-        // Correctly detect table header by checking if column 1 contains '代碼', 'ID', or '編號'
-        if (trimmed.startsWith('|') && !isTable) {
-          const cols = trimmed.split('|').map(s => s.trim());
-          if (cols.length >= 5 && (cols[1].includes('代碼') || cols[1].includes('ID') || cols[1].includes('編號'))) {
-            isTable = true;
-            continue;
-          }
+        if (trimmed.startsWith('| 課程代碼 |')) {
+          isTable = true;
+          continue;
         }
         if (isTable && trimmed.startsWith('| :---')) {
           continue;
