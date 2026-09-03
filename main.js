@@ -182,6 +182,13 @@ function saveInterestedCourses(data) {
   localStorage.setItem('interested_courses', JSON.stringify(data));
 }
 
+function getCourseStatus(interestedMap, courseId) {
+  const val = interestedMap[courseId];
+  if (!val) return null;
+  if (typeof val === 'string') return 'interested'; // 舊格式相容: dateStr
+  return val.status || 'interested';
+}
+
 function cleanupExpiredInterests() {
   const interested = getInterestedCourses();
   const today = new Date();
@@ -189,10 +196,14 @@ function cleanupExpiredInterests() {
   let changed = false;
 
   for (const id in interested) {
-    const courseDate = new Date(interested[id]);
-    if (courseDate < today) {
-      delete interested[id];
-      changed = true;
+    const val = interested[id];
+    const dateStr = typeof val === 'string' ? val : val?.date;
+    if (dateStr) {
+      const courseDate = new Date(dateStr.replace(/\//g, '-'));
+      if (!isNaN(courseDate.getTime()) && courseDate < today) {
+        delete interested[id];
+        changed = true;
+      }
     }
   }
 
@@ -243,8 +254,11 @@ async function initCalendar() {
 
     let coursesHTML = '';
     dayCourses.forEach(course => {
-      // Check if interested
-      const isInterested = !!interested[course.id];
+      // Check status: 'interested' | 'following' | null
+      const status = getCourseStatus(interested, course.id);
+      let statusClass = '';
+      if (status === 'interested') statusClass = 'interested';
+      else if (status === 'following') statusClass = 'following';
       
       // Create a safely encoded JSON string for data attribute
       const encodedCourse = encodeURIComponent(JSON.stringify(course));
@@ -254,7 +268,7 @@ async function initCalendar() {
       const displayName = course.name.replace(/^([\[【].*?[\]】]\s*)+/g, '').trim();
       
       coursesHTML += `
-        <div class="course-item ${isInterested ? 'interested' : ''}" data-course="${encodedCourse}" data-id="${course.id}">
+        <div class="course-item ${statusClass}" data-course="${encodedCourse}" data-id="${course.id}">
           <div class="course-title" title="${course.name}">${displayName}</div>
           ${displayTime ? `<div class="course-time">${displayTime}</div>` : ''}
         </div>
@@ -293,7 +307,21 @@ async function initCalendar() {
     const nextCourse = currentIndex < dayCourses.length - 1 ? dayCourses[currentIndex + 1] : null;
 
     const interested = getInterestedCourses();
-    const isInterested = !!interested[course.id];
+    const currentStatus = getCourseStatus(interested, course.id);
+
+    let btnClass = '';
+    let btnIcon = '☆';
+    let btnText = '有興趣';
+
+    if (currentStatus === 'interested') {
+      btnClass = 'interested';
+      btnIcon = '★';
+      btnText = '有興趣';
+    } else if (currentStatus === 'following') {
+      btnClass = 'following';
+      btnIcon = '★';
+      btnText = '關注';
+    }
 
     modalBody.innerHTML = `
       <button id="btnPrevCourse" class="modal-nav-btn modal-prev" ${!prevCourse ? 'disabled' : ''}>
@@ -305,8 +333,8 @@ async function initCalendar() {
 
       <div class="detail-value title">${course.name}</div>
       <div class="modal-header-actions">
-        <button id="btnInterested" class="btn-action ${isInterested ? 'active' : ''}">
-          <span class="icon">${isInterested ? '★' : '☆'}</span> 有興趣
+        <button id="btnInterested" class="btn-action ${btnClass}">
+          <span class="icon">${btnIcon}</span> <span class="text">${btnText}</span>
         </button>
         <button id="btnCopy" class="btn-action">
           <span class="icon">📋</span> Copy
@@ -336,21 +364,52 @@ async function initCalendar() {
     // Button event listeners
     document.getElementById('btnInterested').onclick = () => {
       const currentInterested = getInterestedCourses();
+      const currentStatus = getCourseStatus(currentInterested, course.id);
       const btn = document.getElementById('btnInterested');
       const courseEl = document.querySelector(`.course-item[data-id="${course.id}"]`);
 
-      if (currentInterested[course.id]) {
-        delete currentInterested[course.id];
-        btn.classList.remove('active');
-        btn.querySelector('.icon').innerText = '☆';
-        if (courseEl) courseEl.classList.remove('interested');
+      let nextStatus = null;
+      if (!currentStatus) {
+        nextStatus = 'interested';
+      } else if (currentStatus === 'interested') {
+        nextStatus = 'following';
       } else {
-        currentInterested[course.id] = course.dateStr;
-        btn.classList.add('active');
-        btn.querySelector('.icon').innerText = '★';
-        if (courseEl) courseEl.classList.add('interested');
+        nextStatus = null;
+      }
+
+      // Update storage
+      if (nextStatus) {
+        currentInterested[course.id] = {
+          date: course.dateStr,
+          status: nextStatus
+        };
+      } else {
+        delete currentInterested[course.id];
       }
       saveInterestedCourses(currentInterested);
+
+      // Update Button UI
+      btn.classList.remove('interested', 'following', 'active');
+      if (nextStatus === 'interested') {
+        btn.classList.add('interested');
+        btn.querySelector('.icon').innerText = '★';
+        btn.querySelector('.text').innerText = '有興趣';
+      } else if (nextStatus === 'following') {
+        btn.classList.add('following');
+        btn.querySelector('.icon').innerText = '★';
+        btn.querySelector('.text').innerText = '關注';
+      } else {
+        btn.querySelector('.icon').innerText = '☆';
+        btn.querySelector('.text').innerText = '有興趣';
+      }
+
+      // Update Calendar Item UI
+      if (courseEl) {
+        courseEl.classList.remove('interested', 'following');
+        if (nextStatus) {
+          courseEl.classList.add(nextStatus);
+        }
+      }
     };
 
     document.getElementById('btnCopy').onclick = async () => {

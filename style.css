@@ -170,6 +170,15 @@ body {
   background-color: #bae6fd;
 }
 
+.course-item.following {
+  background-color: #dcfce7; /* Light green */
+  border-color: #bbf7d0;
+}
+
+.course-item.following:hover {
+  background-color: #bbf7d0;
+}
+
 .course-title {
   white-space: nowrap;
   overflow: hidden;
@@ -250,10 +259,26 @@ body {
   border-color: var(--color-text-muted);
 }
 
-.btn-action.active {
+.btn-action.active,
+.btn-action.interested {
   background: #e0f2fe;
   border-color: #38bdf8;
   color: #0369a1;
+}
+
+.btn-action.active:hover,
+.btn-action.interested:hover {
+  background: #bae6fd;
+}
+
+.btn-action.following {
+  background: #dcfce7;
+  border-color: #4ade80;
+  color: #15803d;
+}
+
+.btn-action.following:hover {
+  background: #bbf7d0;
 }
 
 .btn-action .icon {
