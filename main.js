@@ -1,9 +1,23 @@
-const GITHUB_API_URL = "https://api.github.com/repos/JeffCodingMentor/inspage/contents/data";
+const FIRESTORE_PROJECT_ID = "inspage-a0109";
+const FIRESTORE_API_URL = `https://firestore.googleapis.com/v1/projects/${FIRESTORE_PROJECT_ID}/databases/(default)/documents/courses?pageSize=300`;
+
+function decodeFirestoreDoc(doc) {
+  const fields = doc.fields || {};
+  const res = {};
+  for (const [key, val] of Object.entries(fields)) {
+    if ('stringValue' in val) res[key] = val.stringValue;
+    else if ('integerValue' in val) res[key] = Number(val.integerValue);
+    else if ('timestampValue' in val) res[key] = val.timestampValue;
+    else if ('booleanValue' in val) res[key] = val.booleanValue;
+    else res[key] = Object.values(val)[0];
+  }
+  return res;
+}
 
 async function fetchCoursesDynamically() {
   const coursesMap = new Map();
   
-  // Default to current week's Monday if no data found
+  // 預設為當週星期一
   const today = new Date();
   let dayOfWeek = today.getDay();
   let diffToMonday = dayOfWeek === 0 ? -6 : 1 - dayOfWeek;
@@ -12,165 +26,76 @@ async function fetchCoursesDynamically() {
   currentWeekMonday.setHours(0, 0, 0, 0);
   
   let startDate = new Date(currentWeekMonday);
-  let dynamicCutoffTime = startDate.getTime();
-  let isFirstValidFile = true;
   let totalWeeks = 3;
+  let fileMaxDate = 0;
 
   try {
-    const response = await fetch(GITHUB_API_URL);
-    if (!response.ok) throw new Error("Failed to fetch file list from GitHub");
-    const files = await response.json();
-    
-    // Filter markdown files and sort by name descending (newest first)
-    const mdFiles = files.filter(f => f.name.endsWith('.md'))
-                         .sort((a, b) => b.name.localeCompare(a.name));
-
-    for (const file of mdFiles) {
-      const fileRes = await fetch(file.download_url);
-      if (!fileRes.ok) continue;
-      const rawMarkdown = await fileRes.text();
+    let pageToken = '';
+    do {
+      const url = `${FIRESTORE_API_URL}${pageToken ? `&pageToken=${pageToken}` : ''}`;
+      const response = await fetch(url);
+      if (!response.ok) {
+        throw new Error(`Firestore REST API 回傳狀態 ${response.status}: ${response.statusText}`);
+      }
+      const data = await response.json();
       
-      const lines = rawMarkdown.split('\n');
-      let isTable = false;
-      let hasValidCourse = false;
-      let allCoursesAreOld = true;
-      let fileMaxDate = 0;
-      let fileCourses = [];
-      
-      for (const line of lines) {
-        const trimmed = line.trim();
-        if (trimmed.startsWith('| 課程代碼 |')) {
-          isTable = true;
-          continue;
-        }
-        if (isTable && trimmed.startsWith('| :---')) {
-          continue;
-        }
-        if (isTable && trimmed.startsWith('|')) {
-          const cols = trimmed.split('|').map(s => s.trim());
-          if (cols.length >= 6) {
-            const rawIdStr = cols[1]; // e.g. [5547097](https://...) or 5547097
-            let id = '';
-            let sourceUrl = '';
+      if (data.documents && Array.isArray(data.documents)) {
+        for (const doc of data.documents) {
+          const c = decodeFirestoreDoc(doc);
+          if (!c.id) continue;
 
-            const idMatch = rawIdStr.match(/\[(\d+)\]/);
-            if (idMatch) {
-              id = idMatch[1];
-              const rawUrlMatch = rawIdStr.match(/\((https?:\/\/[^\)]+)\)/);
-              sourceUrl = rawUrlMatch ? rawUrlMatch[1] : '';
-            } else {
-              const pureDigits = rawIdStr.match(/(\d{7})/);
-              if (pureDigits) id = pureDigits[1];
-            }
+          // 處理 Google Meet 視訊連結 HTML
+          let meetLinkHtml = c.meetLinkHtml || c.meetLink || '';
+          if (c.rawLink) {
+            meetLinkHtml = `<a href="${c.rawLink}" target="_blank" rel="noopener noreferrer">${c.rawLink}</a>`;
+          } else if (typeof meetLinkHtml === 'string' && meetLinkHtml.startsWith('http')) {
+            meetLinkHtml = `<a href="${meetLinkHtml}" target="_blank" rel="noopener noreferrer">${meetLinkHtml}</a>`;
+          } else if (!meetLinkHtml) {
+            meetLinkHtml = '請見內文';
+          }
 
-            if (!id) continue;
-
-            const name = cols[2].replace(/\*\*/g, '');
-            const rawTime = cols[3].replace(/\*\*/g, ''); // e.g. 2026/04/12(日) 09:00~12:00
-            
-            // Flexible date matching for YYYY/MM/DD or YYYY-MM-DD (with 1 or 2 digits month/day)
-            const dateMatch = rawTime.match(/(\d{4})[\/\-](\d{1,2})[\/\-](\d{1,2})/);
-            let dateStr = '';
-            if (dateMatch) {
-              const yyyy = dateMatch[1];
-              const mm = String(dateMatch[2]).padStart(2, '0');
-              const dd = String(dateMatch[3]).padStart(2, '0');
-              dateStr = `${yyyy}/${mm}/${dd}`;
-            }
-
-            const timeRangeMatch = rawTime.match(/(\d{2}:\d{2}.*)$/);
-            const timeRange = timeRangeMatch ? timeRangeMatch[1].trim() : '';
-            const startTime = timeRange.match(/(\d{2}:\d{2})/) ? timeRange.match(/(\d{2}:\d{2})/)[1] : '';
-
-            const meetLink = cols[4];
-            let meetLinkHtml = meetLink;
-            let rawLink = '';
-            
-            const linkUrlMatch = meetLink.match(/\((https?:\/\/[^\)]+)\)/) || meetLink.match(/(https?:\/\/[^\s\)]+)/);
-            if (linkUrlMatch) {
-              rawLink = linkUrlMatch[1];
-              meetLinkHtml = `<a href="${rawLink}" target="_blank" rel="noopener noreferrer">${rawLink}</a>`;
-            } else if (meetLink.includes('meet.google.com')) {
-              const m = meetLink.match(/(https?:\/\/meet\.google\.com\/[a-z-]+)/);
-              if (m) {
-                rawLink = m[1];
-                meetLinkHtml = `<a href="${rawLink}" target="_blank" rel="noopener noreferrer">${rawLink}</a>`;
+          // 處理課程日期時間戳記
+          let courseDate = 0;
+          if (c.dateStr) {
+            const parsedDate = new Date(c.dateStr.replace(/\//g, '-'));
+            if (!isNaN(parsedDate.getTime())) {
+              courseDate = parsedDate.getTime();
+              if (courseDate > fileMaxDate) {
+                fileMaxDate = courseDate;
               }
             }
-            
-            const speaker = cols[5];
-
-            let courseDate = 0;
-            if (dateStr) {
-              const parsedDate = new Date(dateStr.replace(/\//g, '-'));
-              if (!isNaN(parsedDate.getTime())) {
-                courseDate = parsedDate.getTime();
-                hasValidCourse = true;
-                if (courseDate > fileMaxDate) {
-                  fileMaxDate = courseDate;
-                }
-              }
-            }
-
-            fileCourses.push({
-              id,
-              name,
-              rawTime,
-              dateStr,
-              startTime,
-              timeRange,
-              meetLinkHtml,
-              rawLink,
-              speaker,
-              sourceUrl,
-              courseDate
-            });
           }
-        } else if (isTable && line.trim() === '') {
-          isTable = false; // End of table
+
+          coursesMap.set(c.id, {
+            ...c,
+            meetLinkHtml,
+            courseDate
+          });
         }
       }
+      pageToken = data.nextPageToken || '';
+    } while (pageToken);
 
-      // If we found valid courses in this first file, set the dynamic window
-      if (isFirstValidFile && hasValidCourse) {
-        const maxD = new Date(fileMaxDate);
-        let maxDWeekDay = maxD.getDay();
-        let maxDDiffToMonday = maxDWeekDay === 0 ? -6 : 1 - maxDWeekDay;
-        const maxWeekMonday = new Date(maxD);
-        maxWeekMonday.setDate(maxD.getDate() + maxDDiffToMonday);
-        maxWeekMonday.setHours(0, 0, 0, 0);
+    // 依據最遠課程日期動態計算日曆顯示週數
+    if (fileMaxDate > 0) {
+      const maxD = new Date(fileMaxDate);
+      let maxDWeekDay = maxD.getDay();
+      let maxDDiffToMonday = maxDWeekDay === 0 ? -6 : 1 - maxDWeekDay;
+      const maxWeekMonday = new Date(maxD);
+      maxWeekMonday.setDate(maxD.getDate() + maxDDiffToMonday);
+      maxWeekMonday.setHours(0, 0, 0, 0);
 
-        let diffMs = maxWeekMonday.getTime() - startDate.getTime();
-        let diffWeeks = Math.round(diffMs / (7 * 24 * 60 * 60 * 1000));
-        totalWeeks = Math.max(3, diffWeeks + 1);
-        
-        isFirstValidFile = false;
-      }
-
-      if (hasValidCourse) {
-        for (const c of fileCourses) {
-          if (c.courseDate >= dynamicCutoffTime) {
-            allCoursesAreOld = false;
-          }
-          if (!coursesMap.has(c.id)) {
-            coursesMap.set(c.id, c);
-          }
-        }
-      }
-
-      // If we found courses in this file, and EVERY single one was older than the cutoff time
-      // we can comfortably stop fetching any older historical files to save time and bandwidth.
-      if (!isFirstValidFile && hasValidCourse && allCoursesAreOld) {
-        console.log(`Stopping fetch because file ${file.name} contains only courses older than the calendar start date.`);
-        break;
-      }
+      let diffMs = maxWeekMonday.getTime() - startDate.getTime();
+      let diffWeeks = Math.round(diffMs / (7 * 24 * 60 * 60 * 1000));
+      totalWeeks = Math.max(3, diffWeeks + 1);
     }
   } catch (error) {
-    console.error("Error fetching courses from GitHub:", error);
+    console.error("從 Firestore 讀取課程資料失敗:", error);
   }
 
   return { courses: Array.from(coursesMap.values()), startDate, totalWeeks };
 }
+
 
 // LocalStorage Management
 function getInterestedCourses() {
