@@ -11,3 +11,8 @@ __pycache__/
 # Local scripts and notebooks
 automation/
 *.ipynb
+
+# Firebase Service Account Keys
+*firebase*.json
+serviceAccountKey.json
+
