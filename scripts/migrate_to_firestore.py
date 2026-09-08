@@ -5,8 +5,17 @@ migrate_to_firestore.py
 """
 
 import os
+import sys
 import glob
 from upload_courses import parse_markdown_to_json, upload_courses_to_firestore, DEFAULT_KEY_PATH
+
+# 確保在 Windows 環境下的終端機輸出能正確支援 UTF-8
+if sys.platform == "win32":
+    try:
+        sys.stdout.reconfigure(encoding="utf-8")
+    except Exception:
+        pass
+
 
 def run_migration(data_dir: str = "data", max_files: int = 10, key_path: str = DEFAULT_KEY_PATH):
     print("=" * 60)

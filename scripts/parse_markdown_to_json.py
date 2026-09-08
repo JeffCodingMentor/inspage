@@ -1,15 +1,13 @@
 """
-upload_courses.py
-提供課程資料解析與 Firestore 批次上傳之通用模組。
-可由外部排程腳本直接 import 使用，或以 CLI 模式執行。
+parse_markdown_to_json.py
+專門負責解析全國教師在職進修資訊網 Markdown 格式課程表格為標準 JSON / 字典列表的獨立模組。
+可直接以 CLI 執行進行檔案轉換，或由其他自動化排程腳本 import 使用。
 """
 
-import os
 import re
 import sys
 import json
-import firebase_admin
-from firebase_admin import credentials, firestore
+import os
 
 # 確保在 Windows 環境下的終端機輸出能正確支援 UTF-8
 if sys.platform == "win32":
@@ -19,26 +17,12 @@ if sys.platform == "win32":
         pass
 
 
-DEFAULT_KEY_PATH = os.environ.get("FIREBASE_KEY_PATH", "firebase_key.json")
-
-def init_firestore(key_path: str = DEFAULT_KEY_PATH):
-    """初始化 Firebase Admin SDK 並回傳 Firestore 客戶端實例"""
-    if not firebase_admin._apps:
-        if not os.path.exists(key_path):
-            raise FileNotFoundError(
-                f"找不到 Firebase 金鑰檔案：{key_path}\n"
-                "請確認金鑰已放置於該路徑，或設定環境變數 FIREBASE_KEY_PATH。"
-            )
-        cred = credentials.Certificate(key_path)
-        firebase_admin.initialize_app(cred)
-    return firestore.client()
-
 def parse_markdown_to_json(md_content: str) -> list[dict]:
     """
-    解析全國教師在職進修資訊網 Markdown 格式課程表格為結構化字典列表。
+    解析 Markdown 格式課程表格為結構化字典列表。
     
-    :param md_content: Markdown 格式文本內容
-    :return: 課程字典列表 [ { "id": "...", "name": "...", "dateStr": "...", ... }, ... ]
+    :param md_content: Markdown 文本字串
+    :return: 結構化課程列表 [ { "id": ..., "name": ..., "dateStr": ... }, ... ]
     """
     courses = []
     lines = md_content.splitlines()
@@ -55,7 +39,7 @@ def parse_markdown_to_json(md_content: str) -> list[dict]:
             in_table = True
             continue
             
-        # 2. 跳過 Markdown 表格分隔線
+        # 2. 跳過分隔線 (| :--- | :--- | ...)
         if in_table and ("---" in trimmed):
             continue
             
@@ -64,6 +48,8 @@ def parse_markdown_to_json(md_content: str) -> list[dict]:
             parts = [c.strip() for c in trimmed.strip("|").split("|")]
             if len(parts) >= 5:
                 col_id, col_name, col_time, col_link, col_speaker = parts[:5]
+                
+                # 清理 Markdown 加粗標記 (**)
                 col_name = col_name.replace("**", "").strip()
                 col_time = col_time.replace("**", "").strip()
                 
@@ -75,7 +61,7 @@ def parse_markdown_to_json(md_content: str) -> list[dict]:
                 else:
                     digits = re.search(r"(\d{6,8})", col_id)
                     if not digits:
-                        continue
+                        continue  # 非有效課程代碼列，略過
                     course_id = digits.group(1)
                     source_url = f"https://www2.inservice.edu.tw/NAPP/CourseView.aspx?cid={course_id}"
                 
@@ -86,7 +72,7 @@ def parse_markdown_to_json(md_content: str) -> list[dict]:
                     yyyy, mm, dd = date_match.groups()
                     date_str = f"{yyyy}/{int(mm):02d}/{int(dd):02d}"
                 
-                # 萃取時段與開始時間
+                # 萃取時段 (如 08:45~12:00) 與開始時間 (如 08:45)
                 time_range_match = re.search(r"(\d{1,2}:\d{2}\s*~\s*\d{1,2}:\d{2})", col_time)
                 time_range = time_range_match.group(1).strip() if time_range_match else ""
                 
@@ -121,62 +107,31 @@ def parse_markdown_to_json(md_content: str) -> list[dict]:
                 
     return courses
 
-def upload_courses_to_firestore(courses: list[dict], key_path: str = DEFAULT_KEY_PATH) -> int:
-    """
-    將課程字典列表批量寫入/更新至 Firestore 的 'courses' 集合中。
-    以 course['id'] 作為 Document ID 進行 Merge Upsert，天然去重。
-    
-    :param courses: 課程字典列表 [ { "id": "...", "name": "...", ... }, ... ]
-    :param key_path: Service Account JSON 金鑰檔案路徑
-    :return: 成功處理的課程筆數
-    """
-    if not courses:
-        print("ℹ️ 沒有任何課程資料需要上傳。")
-        return 0
-
-    db = init_firestore(key_path)
-    batch = db.batch()
-    count = 0
-    total = len(courses)
-
-    for course in courses:
-        course_id = str(course.get("id", "")).strip()
-        if not course_id:
-            continue
-        
-        doc_ref = db.collection("courses").document(course_id)
-        # 合併伺服端更新時間戳記
-        data = {**course, "updatedAt": firestore.SERVER_TIMESTAMP}
-        batch.set(doc_ref, data, merge=True)
-        count += 1
-
-        # Firestore Batch 單次寫入上限 500 筆
-        if count % 500 == 0:
-            batch.commit()
-            batch = db.batch()
-
-    if count % 500 != 0:
-        batch.commit()
-
-    print(f"🎉 成功寫入/更新 {count} / {total} 筆課程至 Firestore！")
-    return count
-
 if __name__ == "__main__":
-    if len(sys.argv) > 1:
-        target_path = sys.argv[1]
-        if not os.path.exists(target_path):
-            print(f"❌ 找不到目標檔案：{target_path}")
-            sys.exit(1)
-        
-        with open(target_path, "r", encoding="utf-8") as f:
-            content = f.read()
-            
-        if target_path.endswith(".json"):
-            courses_data = json.loads(content)
-        else:
-            courses_data = parse_markdown_to_json(content)
-            
-        print(f"成功解析 {len(courses_data)} 門課程，正在上傳至 Firestore...")
-        upload_courses_to_firestore(courses_data)
+    if len(sys.argv) < 2:
+        print("使用方式：python parse_markdown_to_json.py <輸入 markdown 檔案路徑> [輸出 json 檔案路徑]")
+        print("範例：python parse_markdown_to_json.py data/courselist_20260927.md output.json")
+        sys.exit(0)
+
+    input_file = sys.argv[1]
+    output_file = sys.argv[2] if len(sys.argv) > 2 else None
+
+    if not os.path.exists(input_file):
+        print(f"❌ 找不到輸入檔案：{input_file}")
+        sys.exit(1)
+
+    with open(input_file, "r", encoding="utf-8") as f:
+        md_text = f.read()
+
+    result = parse_markdown_to_json(md_text)
+    print(f"✅ 成功解析 {len(result)} 門課程！")
+
+    if output_file:
+        with open(output_file, "w", encoding="utf-8") as f:
+            json.dump(result, f, ensure_ascii=False, indent=2)
+        print(f"📁 已將 JSON 結果儲存至：{output_file}")
     else:
-        print("使用方式：python upload_courses.py <markdown_or_json_file>")
+        # 印出第 1 筆預覽
+        if result:
+            print("\n--- 預覽第 1 筆資料結構 ---")
+            print(json.dumps(result[0], ensure_ascii=False, indent=2))
