@@ -343,7 +343,8 @@ async function initCalendar() {
       const textToCopy = `課程: ${cleanName}
 時間: ${course.dateStr} ${course.timeRange}
 連結: ${link}
-主講: ${course.speaker}`;
+主講: ${course.speaker}
+主辦: 教師研習`;
       
       try {
         await navigator.clipboard.writeText(textToCopy);
