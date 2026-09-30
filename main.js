@@ -141,16 +141,14 @@ function cleanupExpiredInterests() {
 // ==========================================
 // Firebase Authentication (Google 帳號登入) & 管理員模組
 // ==========================================
+const FIREBASE_WEB_API_KEY = "AIzaSyC-D15_OK9-oxJrrne0RIn5hDzj3gCecLM";
 let firebaseAuth = null;
 let currentAdminUser = null;
 
-function getFirebaseAuth(apiKey) {
+function getFirebaseAuth() {
   if (firebaseAuth) return firebaseAuth;
-  const currentKey = apiKey || localStorage.getItem('firebase_web_api_key') || '';
-  if (!currentKey) return null;
-
   const firebaseConfig = {
-    apiKey: currentKey,
+    apiKey: FIREBASE_WEB_API_KEY,
     authDomain: `${FIRESTORE_PROJECT_ID}.firebaseapp.com`,
     projectId: FIRESTORE_PROJECT_ID
   };
@@ -217,25 +215,18 @@ function setupAdminModal() {
   const adminError = document.getElementById('adminLoginError');
   const adminLogoutBtn = document.getElementById('adminLogoutBtn');
   const btnGoogleSignIn = document.getElementById('btnGoogleSignIn');
-  const apiKeyInput = document.getElementById('adminApiKey');
 
-  // 若已有保存的金鑰，嘗試初始化並監聽自動登入狀態
-  const savedKey = localStorage.getItem('firebase_web_api_key') || '';
-  if (savedKey) {
-    if (apiKeyInput) apiKeyInput.value = savedKey;
-    const auth = getFirebaseAuth(savedKey);
-    if (auth) {
-      onAuthStateChanged(auth, (user) => {
-        currentAdminUser = user;
-        updateAdminFooterUI();
-      });
-    }
+  // 初始化並監聽自動登入狀態
+  const auth = getFirebaseAuth();
+  if (auth) {
+    onAuthStateChanged(auth, (user) => {
+      currentAdminUser = user;
+      updateAdminFooterUI();
+    });
   }
 
   if (adminTrigger && adminOverlay) {
     adminTrigger.addEventListener('click', () => {
-      const currentSavedKey = localStorage.getItem('firebase_web_api_key') || '';
-      if (apiKeyInput) apiKeyInput.value = currentSavedKey;
       adminError.style.display = 'none';
       adminError.innerText = '';
       adminOverlay.classList.add('active');
@@ -255,28 +246,13 @@ function setupAdminModal() {
 
   if (btnGoogleSignIn) {
     btnGoogleSignIn.addEventListener('click', async () => {
-      const apiKey = apiKeyInput ? apiKeyInput.value.trim() : '';
-      if (!apiKey) {
-        adminError.style.display = 'block';
-        adminError.innerText = '請先填寫 Firebase 網路 API 金鑰 (Web API Key)。';
-        if (apiKeyInput) apiKeyInput.focus();
-        return;
-      }
-
-      localStorage.setItem('firebase_web_api_key', apiKey);
-      const auth = getFirebaseAuth(apiKey);
-      if (!auth) {
-        adminError.style.display = 'block';
-        adminError.innerText = '無法初始化 Firebase，請確認 API 金鑰格式是否正確。';
-        return;
-      }
-
       adminError.style.display = 'none';
       btnGoogleSignIn.disabled = true;
       const originalHtml = btnGoogleSignIn.innerHTML;
       btnGoogleSignIn.innerHTML = '正在開啟 Google 登入視窗...';
 
       try {
+        const auth = getFirebaseAuth();
         const provider = new GoogleAuthProvider();
         provider.setCustomParameters({ prompt: 'select_account' });
         const result = await signInWithPopup(auth, provider);
@@ -290,11 +266,9 @@ function setupAdminModal() {
         if (err.code === 'auth/popup-closed-by-user') {
           adminError.innerText = '登入視窗已被關閉，請重新點擊登入。';
         } else if (err.code === 'auth/unauthorized-domain') {
-          adminError.innerText = `當前網址網域尚未在 Firebase 授權！\n請至 Firebase Console > Authentication > Settings > Authorized domains 加入當前網址網域。`;
+          adminError.innerText = `當前網址網域尚未在 Firebase 授權！\n請至 Firebase Console > Authentication > Settings > Authorized domains 加入當前網址網域（例如：jeffcodingmentor.github.io 或 localhost）。`;
         } else if (err.code === 'auth/operation-not-allowed') {
           adminError.innerText = 'Firebase Authentication 尚未啟用 Google 登入提供者，請至 Firebase 控制台開啟。';
-        } else if (err.code === 'auth/api-key-not-valid.invalid-api-key') {
-          adminError.innerText = 'Firebase 網路 API 金鑰無效，請至 Firebase Console「專案設定 > 一般」確認是否複製完整。';
         } else {
           adminError.innerText = err.message || '登入失敗，請稍後再試。';
         }
