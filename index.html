@@ -43,9 +43,44 @@
     </div>
   </div>
 
+  <!-- Modal for Admin Login -->
+  <div class="modal-overlay" id="adminModalOverlay">
+    <div class="modal-content admin-modal-content">
+      <button class="modal-close" id="adminModalClose">&times;</button>
+      <div class="admin-modal-body">
+        <h2 class="admin-modal-title">管理員驗證</h2>
+        <p class="admin-hint">登入後即可在課程詳細彈窗中顯示並執行「🗑️ 刪除」功能。</p>
+        <form id="adminLoginForm">
+          <div class="form-group">
+            <label for="adminApiKey">Firebase 網路 API 金鑰 (Web API Key)</label>
+            <input type="text" id="adminApiKey" placeholder="AIzaSy..." required autocomplete="off">
+            <small class="form-help">位於 Firebase Console > 專案設定 > 一般 >「網路 API 金鑰」，只需輸入一次。</small>
+          </div>
+          <div class="form-group">
+            <label for="adminEmail">管理員 Email</label>
+            <input type="email" id="adminEmail" placeholder="admin@example.com" required autocomplete="username">
+          </div>
+          <div class="form-group">
+            <label for="adminPassword">管理員密碼</label>
+            <input type="password" id="adminPassword" placeholder="••••••••" required autocomplete="current-password">
+          </div>
+          <div id="adminLoginError" class="admin-error" style="display: none;"></div>
+          <div class="form-actions">
+            <button type="submit" id="btnAdminSubmit" class="btn-action btn-primary-action">登入</button>
+            <button type="button" id="btnAdminCancel" class="btn-action">取消</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+
   <footer class="footer">
     <div class="container">
-      <p>made by JeffCodingMentor</p>
+      <p>made by JeffCodingMentor <button id="adminLoginTrigger" class="admin-trigger" title="管理員登入">🔒</button></p>
+      <div id="adminStatusArea" class="admin-status-area" style="display: none;">
+        <span class="admin-badge">🟢 管理員已登入</span>
+        <button id="adminLogoutBtn" class="admin-logout-btn">登出</button>
+      </div>
     </div>
   </footer>
 

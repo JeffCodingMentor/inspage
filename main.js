@@ -135,8 +135,235 @@ function cleanupExpiredInterests() {
   if (changed) saveInterestedCourses(interested);
 }
 
+// ==========================================
+// Firebase Authentication & 管理員模組
+// ==========================================
+const AUTH_STORAGE_KEY = 'firebase_admin_auth';
+
+function getAdminAuth() {
+  const data = localStorage.getItem(AUTH_STORAGE_KEY);
+  if (!data) return null;
+  try {
+    return JSON.parse(data);
+  } catch {
+    return null;
+  }
+}
+
+function saveAdminAuth(authData) {
+  localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(authData));
+}
+
+function clearAdminAuth() {
+  localStorage.removeItem(AUTH_STORAGE_KEY);
+}
+
+function isAdminLoggedIn() {
+  const auth = getAdminAuth();
+  return !!(auth && auth.idToken);
+}
+
+async function loginAdminWithEmail(apiKey, email, password) {
+  const url = `https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key=${encodeURIComponent(apiKey)}`;
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      email,
+      password,
+      returnSecureToken: true
+    })
+  });
+  const data = await res.json();
+  if (!res.ok) {
+    let msg = '登入失敗';
+    if (data.error && data.error.message) {
+      const code = data.error.message;
+      if (code === 'EMAIL_NOT_FOUND' || code === 'INVALID_PASSWORD' || code === 'INVALID_LOGIN_CREDENTIALS') {
+        msg = '帳號或密碼錯誤，請重新確認。';
+      } else if (code === 'API_KEY_INVALID') {
+        msg = 'Firebase 網路 API 金鑰無效，請至 Firebase 控制台確認。';
+      } else if (code === 'OPERATION_NOT_ALLOWED') {
+        msg = 'Firebase Authentication 尚未啟用 Email/密碼 登入提供者。';
+      } else if (code === 'TOO_MANY_ATTEMPTS_TRY_LATER') {
+        msg = '嘗試次數過多，已被暫時封鎖，請稍後再試。';
+      } else {
+        msg = `錯誤：${code}`;
+      }
+    }
+    throw new Error(msg);
+  }
+
+  const authData = {
+    apiKey,
+    email: data.email,
+    idToken: data.idToken,
+    refreshToken: data.refreshToken,
+    expiresAt: Date.now() + parseInt(data.expiresIn || '3600', 10) * 1000
+  };
+  saveAdminAuth(authData);
+  localStorage.setItem('firebase_web_api_key', apiKey);
+  return authData;
+}
+
+async function getValidIdToken() {
+  const auth = getAdminAuth();
+  if (!auth) return null;
+
+  // 若 Token 還剩 5 分鐘以上才過期，直接回傳
+  if (auth.expiresAt && Date.now() < auth.expiresAt - 5 * 60 * 1000) {
+    return auth.idToken;
+  }
+
+  // 嘗試透過 Google Secure Token API 刷新憑證
+  if (auth.refreshToken && auth.apiKey) {
+    try {
+      const url = `https://securetoken.googleapis.com/v1/token?key=${encodeURIComponent(auth.apiKey)}`;
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams({
+          grant_type: 'refresh_token',
+          refresh_token: auth.refreshToken
+        })
+      });
+      if (res.ok) {
+        const refreshData = await res.json();
+        auth.idToken = refreshData.id_token;
+        auth.refreshToken = refreshData.refresh_token;
+        auth.expiresAt = Date.now() + parseInt(refreshData.expires_in || '3600', 10) * 1000;
+        saveAdminAuth(auth);
+        return auth.idToken;
+      }
+    } catch (e) {
+      console.error('刷新 Token 失敗:', e);
+    }
+  }
+
+  return auth.idToken;
+}
+
+async function deleteCourseFromFirestore(courseId) {
+  const idToken = await getValidIdToken();
+  if (!idToken) {
+    throw new Error('未登入或登入憑證無效，請重新登入管理員。');
+  }
+
+  const deleteUrl = `https://firestore.googleapis.com/v1/projects/${FIRESTORE_PROJECT_ID}/databases/(default)/documents/courses/${encodeURIComponent(courseId)}`;
+  const res = await fetch(deleteUrl, {
+    method: 'DELETE',
+    headers: {
+      'Authorization': `Bearer ${idToken}`
+    }
+  });
+
+  if (!res.ok) {
+    const errData = await res.json().catch(() => ({}));
+    const errMsg = errData.error?.message || `刪除失敗 (HTTP ${res.status})`;
+    if (res.status === 403) {
+      throw new Error(`權限不足：請確認 Firebase 控制台中的 Firestore 安全規則已允許已登入者進行 delete。\n(${errMsg})`);
+    } else if (res.status === 401) {
+      clearAdminAuth();
+      updateAdminFooterUI();
+      throw new Error('登入憑證已失效，請重新登入管理員。');
+    }
+    throw new Error(errMsg);
+  }
+
+  return true;
+}
+
+function updateAdminFooterUI() {
+  const statusArea = document.getElementById('adminStatusArea');
+  const triggerBtn = document.getElementById('adminLoginTrigger');
+  if (!statusArea || !triggerBtn) return;
+
+  if (isAdminLoggedIn()) {
+    statusArea.style.display = 'flex';
+    triggerBtn.style.display = 'none';
+  } else {
+    statusArea.style.display = 'none';
+    triggerBtn.style.display = 'inline-block';
+  }
+}
+
+function setupAdminModal() {
+  const adminOverlay = document.getElementById('adminModalOverlay');
+  const adminClose = document.getElementById('adminModalClose');
+  const adminTrigger = document.getElementById('adminLoginTrigger');
+  const adminCancel = document.getElementById('btnAdminCancel');
+  const adminForm = document.getElementById('adminLoginForm');
+  const adminError = document.getElementById('adminLoginError');
+  const adminLogoutBtn = document.getElementById('adminLogoutBtn');
+  const submitBtn = document.getElementById('btnAdminSubmit');
+
+  if (adminTrigger && adminOverlay) {
+    adminTrigger.addEventListener('click', () => {
+      const savedKey = localStorage.getItem('firebase_web_api_key') || getAdminAuth()?.apiKey || '';
+      const savedEmail = getAdminAuth()?.email || '';
+      document.getElementById('adminApiKey').value = savedKey;
+      document.getElementById('adminEmail').value = savedEmail;
+      document.getElementById('adminPassword').value = '';
+      adminError.style.display = 'none';
+      adminError.innerText = '';
+      adminOverlay.classList.add('active');
+    });
+  }
+
+  const closeAdminModal = () => {
+    if (adminOverlay) adminOverlay.classList.remove('active');
+  };
+
+  if (adminClose) adminClose.addEventListener('click', closeAdminModal);
+  if (adminCancel) adminCancel.addEventListener('click', closeAdminModal);
+  if (adminOverlay) {
+    adminOverlay.addEventListener('click', (e) => {
+      if (e.target === adminOverlay) closeAdminModal();
+    });
+  }
+
+  if (adminForm) {
+    adminForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const apiKey = document.getElementById('adminApiKey').value.trim();
+      const email = document.getElementById('adminEmail').value.trim();
+      const password = document.getElementById('adminPassword').value;
+
+      adminError.style.display = 'none';
+      submitBtn.disabled = true;
+      submitBtn.innerText = '登入中...';
+
+      try {
+        await loginAdminWithEmail(apiKey, email, password);
+        updateAdminFooterUI();
+        closeAdminModal();
+        alert('✅ 管理員登入成功！您現在開啟課程時將可使用「🗑️ 刪除」功能。');
+      } catch (err) {
+        adminError.style.display = 'block';
+        adminError.innerText = err.message;
+      } finally {
+        submitBtn.disabled = false;
+        submitBtn.innerText = '登入';
+      }
+    });
+  }
+
+  if (adminLogoutBtn) {
+    adminLogoutBtn.addEventListener('click', () => {
+      if (window.confirm('確定要登出管理員嗎？登出後將隱藏刪除按鈕。')) {
+        clearAdminAuth();
+        updateAdminFooterUI();
+        alert('已成功登出管理員。');
+      }
+    });
+  }
+
+  updateAdminFooterUI();
+}
+
 async function initCalendar() {
   cleanupExpiredInterests();
+  setupAdminModal();
   
   const calendarEl = document.getElementById('calendar');
   const modalOverlay = document.getElementById('modalOverlay');
@@ -258,6 +485,11 @@ async function initCalendar() {
 
       <div class="detail-value title">${course.name}</div>
       <div class="modal-header-actions">
+        ${isAdminLoggedIn() ? `
+        <button id="btnDeleteCourse" class="btn-action btn-danger" title="永久刪除此課程">
+          <span class="icon">🗑️</span> 刪除
+        </button>
+        ` : ''}
         <button id="btnInterested" class="btn-action ${btnClass}">
           <span class="icon">${btnIcon}</span> <span class="text">${btnText}</span>
         </button>
@@ -356,6 +588,41 @@ async function initCalendar() {
         console.error('Failed to copy: ', err);
       }
     };
+
+    // Admin Delete Event Listener
+    const btnDelete = document.getElementById('btnDeleteCourse');
+    if (btnDelete) {
+      btnDelete.onclick = async () => {
+        const cleanName = course.name.replace(/^([\[【].*?[\]】]\s*)+/g, '').trim();
+        const confirmed = window.confirm(`確定要永久刪除此課程嗎？\n\n【${cleanName}】\n代碼：${course.id}\n時間：${course.dateStr} ${course.timeRange}\n\n⚠️ 此操作將直接從 Firestore 資料庫中永久移除，無法復原。`);
+        if (!confirmed) return;
+
+        btnDelete.disabled = true;
+        btnDelete.innerHTML = '<span class="icon">⏳</span> 刪除中...';
+
+        try {
+          await deleteCourseFromFirestore(course.id);
+
+          // 1. 從記憶體中的 courses 陣列移除
+          const cIdx = courses.findIndex(c => c.id === course.id);
+          if (cIdx !== -1) {
+            courses.splice(cIdx, 1);
+          }
+
+          // 2. 從畫面中的日曆 DOM 移除該卡片
+          const courseEls = document.querySelectorAll(`.course-item[data-id="${course.id}"]`);
+          courseEls.forEach(el => el.remove());
+
+          // 3. 關閉彈窗並提示
+          modalOverlay.classList.remove('active');
+          alert(`✅ 課程「${cleanName}」已成功自資料庫刪除！`);
+        } catch (err) {
+          alert(`❌ 刪除失敗：${err.message}`);
+          btnDelete.disabled = false;
+          btnDelete.innerHTML = '<span class="icon">🗑️</span> 刪除';
+        }
+      };
+    }
 
     if (prevCourse) {
       document.getElementById('btnPrevCourse').onclick = () => showModal(prevCourse);
