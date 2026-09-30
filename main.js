@@ -198,6 +198,21 @@ async function deleteCourseFromFirestore(courseId) {
   return true;
 }
 
+async function checkIsAdminInFirestore(user) {
+  if (!user || !user.email) return false;
+  try {
+    const idToken = await user.getIdToken();
+    const url = `https://firestore.googleapis.com/v1/projects/${FIRESTORE_PROJECT_ID}/databases/(default)/documents/admins/${encodeURIComponent(user.email.toLowerCase())}`;
+    const res = await fetch(url, {
+      headers: { 'Authorization': `Bearer ${idToken}` }
+    });
+    return res.ok;
+  } catch (err) {
+    console.warn('檢查 Firestore 管理員身分時出錯:', err);
+    return false;
+  }
+}
+
 function updateAdminFooterUI() {
   const statusArea = document.getElementById('adminStatusArea');
   const triggerBtn = document.getElementById('adminLoginTrigger');
@@ -224,12 +239,25 @@ function setupAdminModal() {
   const adminLogoutBtn = document.getElementById('adminLogoutBtn');
   const btnGoogleSignIn = document.getElementById('btnGoogleSignIn');
 
-  // 初始化並監聽自動登入狀態
+  // 初始化並監聽自動登入狀態，且向 Firestore 進行權限檢驗
   const auth = getFirebaseAuth();
   if (auth) {
-    onAuthStateChanged(auth, (user) => {
-      currentAdminUser = user;
-      updateAdminFooterUI();
+    onAuthStateChanged(auth, async (user) => {
+      if (user) {
+        const isAdmin = await checkIsAdminInFirestore(user);
+        if (isAdmin) {
+          currentAdminUser = user;
+          updateAdminFooterUI();
+        } else {
+          // 非管理員，立即自動登出以撤銷前端狀態
+          await signOut(auth);
+          currentAdminUser = null;
+          updateAdminFooterUI();
+        }
+      } else {
+        currentAdminUser = null;
+        updateAdminFooterUI();
+      }
     });
   }
 
@@ -264,10 +292,21 @@ function setupAdminModal() {
         const provider = new GoogleAuthProvider();
         provider.setCustomParameters({ prompt: 'select_account' });
         const result = await signInWithPopup(auth, provider);
-        currentAdminUser = result.user;
+        const user = result.user;
+
+        btnGoogleSignIn.innerHTML = '正在與 Firestore 比對管理員權限...';
+        const isAdmin = await checkIsAdminInFirestore(user);
+        if (!isAdmin) {
+          await signOut(auth);
+          currentAdminUser = null;
+          updateAdminFooterUI();
+          throw new Error(`【存取遭拒】\n您的帳號「${user.email}」非 Firestore 授權管理員，無管理權限。`);
+        }
+
+        currentAdminUser = user;
         updateAdminFooterUI();
         closeAdminModal();
-        alert(`✅ Google 管理員登入成功！\n歡迎，${result.user.displayName || result.user.email}！\n您現在開啟課程時將可使用「🗑️ 刪除」功能。`);
+        alert(`✅ 管理員身分已通過 Firestore 驗證！\n歡迎，${user.displayName || user.email}！\n您現在開啟課程時將可使用「🗑️ 刪除」功能。`);
       } catch (err) {
         console.error('Google Sign-In Error:', err);
         adminError.style.display = 'block';
