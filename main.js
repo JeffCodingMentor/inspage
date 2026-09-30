@@ -141,7 +141,7 @@ function cleanupExpiredInterests() {
 // ==========================================
 // Firebase Authentication (Google 帳號登入) & 管理員模組
 // ==========================================
-const FIREBASE_WEB_API_KEY = "AIzaSyC-D15_OK9-oxJrrne0RIn5hDzj3gCecLM";
+const FIREBASE_WEB_API_KEY = "AIzaSyC-D15_0K9-oxJrrne0Rln5hDzj3gCecLM";
 let firebaseAuth = null;
 let currentAdminUser = null;
 
@@ -150,7 +150,8 @@ function getFirebaseAuth() {
   const firebaseConfig = {
     apiKey: FIREBASE_WEB_API_KEY,
     authDomain: `${FIRESTORE_PROJECT_ID}.firebaseapp.com`,
-    projectId: FIRESTORE_PROJECT_ID
+    projectId: FIRESTORE_PROJECT_ID,
+    appId: "1:923327697894:web:494ec63cf504b426fffc27"
   };
 
   const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApp();
