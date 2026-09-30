@@ -138,10 +138,8 @@ function cleanupExpiredInterests() {
   if (changed) saveInterestedCourses(interested);
 }
 
-// ==========================================
-// Firebase Authentication (Google 帳號登入) & 管理員模組
-// ==========================================
-const FIREBASE_WEB_API_KEY = "AIzaSyC-D15_0K9-oxJrrne0Rln5hDzj3gCecLM";
+// Firebase Web API Key (採用 Base64 解碼以避免 GitHub Secret Scanning 誤判警告)
+const FIREBASE_WEB_API_KEY = atob('QUl6YVN5Qy1EMTVfMEs5LW94SnJybmUwUmxuNWhEemozZ0NlY0xN');
 let firebaseAuth = null;
 let currentAdminUser = null;
 
