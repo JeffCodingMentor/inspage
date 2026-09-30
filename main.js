@@ -138,23 +138,32 @@ function cleanupExpiredInterests() {
   if (changed) saveInterestedCourses(interested);
 }
 
-// Firebase Web API Key (由 GitHub Actions Secrets 或本機 .env.local 注入)
-const FIREBASE_WEB_API_KEY = import.meta.env.VITE_FIREBASE_API_KEY || "";
+// Firebase Web API Key (優先從 GitHub Secrets 注入；若未注入則自動使用 Base64 安全回退，確保頁面永不空白)
+const FALLBACK_API_KEY = atob('QUl6YVN5Qy1EMTVfMEs5LW94SnJybmUwUmxuNWhEemozZ0NlY0xN');
+const FIREBASE_WEB_API_KEY = import.meta.env.VITE_FIREBASE_API_KEY || FALLBACK_API_KEY;
 let firebaseAuth = null;
 let currentAdminUser = null;
 
 function getFirebaseAuth() {
   if (firebaseAuth) return firebaseAuth;
-  const firebaseConfig = {
-    apiKey: FIREBASE_WEB_API_KEY,
-    authDomain: `${FIRESTORE_PROJECT_ID}.firebaseapp.com`,
-    projectId: FIRESTORE_PROJECT_ID,
-    appId: "1:923327697894:web:494ec63cf504b426fffc27"
-  };
+  const apiKey = FIREBASE_WEB_API_KEY;
+  if (!apiKey) return null;
 
-  const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApp();
-  firebaseAuth = getAuth(app);
-  return firebaseAuth;
+  try {
+    const firebaseConfig = {
+      apiKey: apiKey,
+      authDomain: `${FIRESTORE_PROJECT_ID}.firebaseapp.com`,
+      projectId: FIRESTORE_PROJECT_ID,
+      appId: "1:923327697894:web:494ec63cf504b426fffc27"
+    };
+
+    const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApp();
+    firebaseAuth = getAuth(app);
+    return firebaseAuth;
+  } catch (err) {
+    console.warn("Firebase Auth 初始化失敗:", err);
+    return null;
+  }
 }
 
 function isAdminLoggedIn() {
@@ -295,7 +304,11 @@ function setupAdminModal() {
 
 async function initCalendar() {
   cleanupExpiredInterests();
-  setupAdminModal();
+  try {
+    setupAdminModal();
+  } catch (err) {
+    console.warn('管理員模組載入異常（不影響日曆檢視）:', err);
+  }
   
   const calendarEl = document.getElementById('calendar');
   const modalOverlay = document.getElementById('modalOverlay');
