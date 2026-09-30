@@ -138,8 +138,8 @@ function cleanupExpiredInterests() {
   if (changed) saveInterestedCourses(interested);
 }
 
-// Firebase Web API Key (採用 Base64 解碼以避免 GitHub Secret Scanning 誤判警告)
-const FIREBASE_WEB_API_KEY = atob('QUl6YVN5Qy1EMTVfMEs5LW94SnJybmUwUmxuNWhEemozZ0NlY0xN');
+// Firebase Web API Key (由 GitHub Actions Secrets 或本機 .env.local 注入)
+const FIREBASE_WEB_API_KEY = import.meta.env.VITE_FIREBASE_API_KEY || "";
 let firebaseAuth = null;
 let currentAdminUser = null;
 
