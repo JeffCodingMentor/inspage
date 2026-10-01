@@ -320,7 +320,7 @@ function setupAdminModal() {
         currentAdminUser = user;
         updateAdminFooterUI();
         closeAdminModal();
-        alert(`✅ 管理員身分已通過 Firestore 驗證！\n歡迎，${user.displayName || user.email}！\n您現在可使用「加入 Notion」與「🗑️ 刪除」功能。`);
+        alert(`✅ 管理員身分已通過 Firestore 驗證！\n歡迎，${user.displayName || user.email}！\n您現在可使用「Notion」與「🗑️ 刪除」功能。`);
       } catch (err) {
         console.error('Google Sign-In Error:', err);
         adminError.style.display = 'block';
@@ -513,7 +513,7 @@ async function initCalendar() {
       </div>
     `;
     modalOverlay.classList.add('active');
-    notionView = notionActions.mount(document.getElementById('notionActionArea'), course.id);
+    notionView = notionActions.mount(document.getElementById('notionActionArea'), course.id, course);
 
     // Button event listeners
     document.getElementById('btnInterested').onclick = () => {
