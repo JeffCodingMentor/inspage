@@ -20,17 +20,12 @@ export function createNotionActions({ getUser, endpoint, fetchImpl = (...args) =
       const copyCheckbox = doc.createElement('input');
       copyCheckbox.type = 'checkbox'; copyCheckbox.id = 'copyOnNotionClick'; copyCheckbox.checked = true;
       copyLabel.append(copyCheckbox, doc.createTextNode(' Copy'));
-      const status = doc.createElement('span');
-      status.className = 'notion-status'; status.setAttribute('role', 'status'); status.setAttribute('aria-live', 'polite');
-      container.replaceChildren(button, copyLabel, status);
+      container.replaceChildren(button, copyLabel);
       let mounted = true;
-      let lastUser = getUser();
       const view = {
         refresh() {
           const user = getUser();
           container.hidden = !user;
-          if (user !== lastUser) status.replaceChildren();
-          lastUser = user;
           button.disabled = !user || pending.has(courseId);
           button.textContent = pending.has(courseId) ? '處理中…' : 'Notion';
         },
@@ -51,10 +46,10 @@ export function createNotionActions({ getUser, endpoint, fetchImpl = (...args) =
           } catch { copyResult = false; }
         }
         if (!endpoint) {
-          status.textContent = `${copyResult === true ? '已複製。' : copyResult === false ? '複製失敗。' : ''}Notion 功能尚未設定。`;
+          doc.defaultView.alert(`${copyResult === true ? '課程資訊已複製。' : copyResult === false ? '課程資訊複製失敗。' : ''}Notion 功能尚未設定。`);
           return;
         }
-        pending.add(courseId); status.replaceChildren(); refresh();
+        pending.add(courseId); refresh();
         const canUpdate = () => mounted && container.isConnected && getUser() === user;
         try {
           const token = await user.getIdToken();
@@ -72,16 +67,19 @@ export function createNotionActions({ getUser, endpoint, fetchImpl = (...args) =
             };
             throw new Error(messages[response.status] || '操作未完成；請先確認 Notion 是否已新增，再重試。');
           }
-          const url = notionUrl(data?.pageUrl);
-          if (!['created', 'exists'].includes(data?.status) || !url) throw new Error('無法確認新增結果，請先查看 Notion 再重試。');
+          if (!['created', 'exists'].includes(data?.status) || !notionUrl(data?.pageUrl)) throw new Error('無法確認新增結果，請先查看 Notion 再重試。');
           if (canUpdate()) {
-            status.textContent = `${data.status === 'created' ? '已加入 Notion。 ' : '此課程已存在。 '}${copyResult === true ? '已複製。 ' : copyResult === false ? '複製失敗。 ' : ''}`;
-            const link = doc.createElement('a'); link.href = url; link.target = '_blank'; link.rel = 'noopener noreferrer';
-            link.textContent = '查看課程'; status.append(link);
+            const message = data.status === 'created' ? '已寫入 Notion。' : 'Notion 中已存在此課程。';
+            const copyMessage = copyResult === true ? '課程資訊已複製。' : copyResult === false ? '但複製失敗。' : '';
+            doc.defaultView.alert(`${message} ${copyMessage}`.trim());
           }
         } catch (error) {
-          if (canUpdate()) status.textContent = `${copyResult === true ? '已複製。' : copyResult === false ? '複製失敗。' : ''}${error.code?.startsWith('auth/') ? '登入驗證失敗，請重新登入。' :
-            error.name === 'TypeError' || error.name === 'TimeoutError' ? '連線失敗或逾時；請先確認 Notion 是否已新增，再重試。' : error.message}`;
+          if (canUpdate()) {
+            const message = error.code?.startsWith('auth/') ? '登入驗證失敗，請重新登入。' :
+              error.name === 'TypeError' || error.name === 'TimeoutError' ? '連線失敗或逾時；請先確認 Notion 是否已新增，再重試。' : error.message;
+            const copyMessage = copyResult === true ? '課程資訊已複製；' : copyResult === false ? '課程資訊複製失敗；' : '';
+            doc.defaultView.alert(`${copyMessage}${message}`);
+          }
         } finally {
           pending.delete(courseId); refresh();
         }
