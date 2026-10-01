@@ -1,5 +1,6 @@
 import { initializeApp, getApps, getApp } from 'firebase/app';
 import { getAuth, signInWithPopup, GoogleAuthProvider, signOut, onAuthStateChanged } from 'firebase/auth';
+import { createNotionActions } from './notion-actions.js';
 
 const FIRESTORE_PROJECT_ID = "inspage-a0109";
 const FIRESTORE_API_URL = `https://firestore.googleapis.com/v1/projects/${FIRESTORE_PROJECT_ID}/databases/(default)/documents/courses?pageSize=300`;
@@ -143,6 +144,10 @@ const FALLBACK_API_KEY = atob('QUl6YVN5Qy1EMTVfMEs5LW94SnJybmUwUmxuNWhEemozZ0NlY
 const FIREBASE_WEB_API_KEY = import.meta.env.VITE_FIREBASE_API_KEY || FALLBACK_API_KEY;
 let firebaseAuth = null;
 let currentAdminUser = null;
+const notionActions = createNotionActions({
+  getUser: () => currentAdminUser,
+  endpoint: import.meta.env.VITE_NOTION_API_URL || '',
+});
 
 function getFirebaseAuth() {
   if (firebaseAuth) return firebaseAuth;
@@ -214,6 +219,9 @@ async function checkIsAdminInFirestore(user) {
 }
 
 function updateAdminFooterUI() {
+  notionActions.refresh();
+  const deleteButton = document.getElementById('btnDeleteCourse');
+  if (deleteButton) deleteButton.hidden = !isAdminLoggedIn();
   const statusArea = document.getElementById('adminStatusArea');
   const triggerBtn = document.getElementById('adminLoginTrigger');
   const userBadge = document.getElementById('adminUserBadge');
@@ -242,9 +250,14 @@ function setupAdminModal() {
   // 初始化並監聽自動登入狀態，且向 Firestore 進行權限檢驗
   const auth = getFirebaseAuth();
   if (auth) {
+    let authRevision = 0;
     onAuthStateChanged(auth, async (user) => {
+      const revision = ++authRevision;
+      currentAdminUser = null;
+      updateAdminFooterUI();
       if (user) {
         const isAdmin = await checkIsAdminInFirestore(user);
+        if (revision !== authRevision || auth.currentUser !== user) return;
         if (isAdmin) {
           currentAdminUser = user;
           updateAdminFooterUI();
@@ -296,6 +309,7 @@ function setupAdminModal() {
 
         btnGoogleSignIn.innerHTML = '正在與 Firestore 比對管理員權限...';
         const isAdmin = await checkIsAdminInFirestore(user);
+        if (auth.currentUser !== user) throw new Error('登入狀態已變更，請重新登入。');
         if (!isAdmin) {
           await signOut(auth);
           currentAdminUser = null;
@@ -306,7 +320,7 @@ function setupAdminModal() {
         currentAdminUser = user;
         updateAdminFooterUI();
         closeAdminModal();
-        alert(`✅ 管理員身分已通過 Firestore 驗證！\n歡迎，${user.displayName || user.email}！\n您現在開啟課程時將可使用「🗑️ 刪除」功能。`);
+        alert(`✅ 管理員身分已通過 Firestore 驗證！\n歡迎，${user.displayName || user.email}！\n您現在可使用「加入 Notion」與「🗑️ 刪除」功能。`);
       } catch (err) {
         console.error('Google Sign-In Error:', err);
         adminError.style.display = 'block';
@@ -328,7 +342,7 @@ function setupAdminModal() {
 
   if (adminLogoutBtn) {
     adminLogoutBtn.addEventListener('click', async () => {
-      if (window.confirm('確定要登出 Google 管理員帳號嗎？登出後將隱藏刪除按鈕。')) {
+      if (window.confirm('確定要登出 Google 管理員帳號嗎？登出後將隱藏管理功能。')) {
         const auth = getFirebaseAuth();
         if (auth) await signOut(auth);
         currentAdminUser = null;
@@ -435,7 +449,9 @@ async function initCalendar() {
     }
   });
 
+  let notionView = null;
   function showModal(course) {
+    notionView?.dispose();
     const dayCourses = courses.filter(c => c.dateStr === course.dateStr);
     dayCourses.sort((a, b) => (a.startTime || '24:00').localeCompare(b.startTime || '24:00'));
     const currentIndex = dayCourses.findIndex(c => c.id === course.id);
@@ -469,17 +485,13 @@ async function initCalendar() {
 
       <div class="detail-value title">${course.name}</div>
       <div class="modal-header-actions">
-        ${isAdminLoggedIn() ? `
-        <button id="btnDeleteCourse" class="btn-action btn-danger" title="永久刪除此課程">
+        <button id="btnDeleteCourse" class="btn-action btn-danger" title="永久刪除此課程" ${isAdminLoggedIn() ? '' : 'hidden'}>
           <span class="icon">🗑️</span> 刪除
         </button>
-        ` : ''}
         <button id="btnInterested" class="btn-action ${btnClass}">
           <span class="icon">${btnIcon}</span> <span class="text">${btnText}</span>
         </button>
-        <button id="btnCopy" class="btn-action">
-          <span class="icon">📋</span> Copy
-        </button>
+        <div id="notionActionArea" class="notion-action-area" hidden></div>
       </div>
       <div class="detail-row">
         <div class="detail-label">課程代碼</div>
@@ -501,6 +513,7 @@ async function initCalendar() {
       </div>
     `;
     modalOverlay.classList.add('active');
+    notionView = notionActions.mount(document.getElementById('notionActionArea'), course.id);
 
     // Button event listeners
     document.getElementById('btnInterested').onclick = () => {
@@ -553,30 +566,11 @@ async function initCalendar() {
       }
     };
 
-    document.getElementById('btnCopy').onclick = async () => {
-      const link = course.rawLink || 'http://tbd/tbd';
-      const cleanName = course.name.replace(/^([\[【].*?[\]】]\s*)+/g, '').trim();
-      const textToCopy = `課程: ${cleanName}
-時間: ${course.dateStr} ${course.timeRange}
-連結: ${link}
-主講: ${course.speaker}
-主辦: 教師研習`;
-      
-      try {
-        await navigator.clipboard.writeText(textToCopy);
-        const btn = document.getElementById('btnCopy');
-        const originalText = btn.innerHTML;
-        btn.innerHTML = '<span class="icon">✅</span> Copied!';
-        setTimeout(() => { btn.innerHTML = originalText; }, 2000);
-      } catch (err) {
-        console.error('Failed to copy: ', err);
-      }
-    };
-
     // Admin Delete Event Listener
     const btnDelete = document.getElementById('btnDeleteCourse');
     if (btnDelete) {
       btnDelete.onclick = async () => {
+        if (!isAdminLoggedIn()) return;
         const cleanName = course.name.replace(/^([\[【].*?[\]】]\s*)+/g, '').trim();
         const confirmed = window.confirm(`確定要永久刪除此課程嗎？\n\n【${cleanName}】\n代碼：${course.id}\n時間：${course.dateStr} ${course.timeRange}\n\n⚠️ 此操作將直接從 Firestore 資料庫中永久移除，無法復原。`);
         if (!confirmed) return;
@@ -617,11 +611,13 @@ async function initCalendar() {
   }
 
   modalClose.addEventListener('click', () => {
+    notionView?.dispose();
     modalOverlay.classList.remove('active');
   });
 
   modalOverlay.addEventListener('click', (e) => {
     if (e.target === modalOverlay) {
+      notionView?.dispose();
       modalOverlay.classList.remove('active');
     }
   });

@@ -26,12 +26,16 @@ jobs:
           cache: 'npm'
 
       - name: Install dependencies
-        run: npm install
+        run: npm ci
+
+      - name: Test
+        run: npm test
 
       - name: Build
         run: npm run build
         env:
           VITE_FIREBASE_API_KEY: ${{ secrets.VITE_FIREBASE_API_KEY }}
+          VITE_NOTION_API_URL: ${{ vars.VITE_NOTION_API_URL }}
 
       - name: Setup Pages
         uses: actions/configure-pages@v5

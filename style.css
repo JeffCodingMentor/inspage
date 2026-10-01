@@ -614,3 +614,18 @@ body {
   height: 20px;
   flex-shrink: 0;
 }
+:where([hidden]) {
+  display: none !important;
+}
+
+.notion-action-area {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+.notion-status {
+  font-size: 0.875rem;
+  overflow-wrap: anywhere;
+}
