@@ -48,14 +48,15 @@ HTTP 400 請求或課程資料錯誤、401 登入無效、403 非管理員、404
 - [x] 先完成 B1 與 Firestore 規則確認；依介面分別實作前後端。
 - [x] 預覽 Worker 不綁正式 webhook、不啟用 Cron；使用相同欄位的測試 Notion 資料庫及 Secrets。
 - [x] 預覽實測登入、權限、新增、重複與錯誤情境。
-- [ ] 保留 Worker／前端版本，先部署後端驗證既有功能，再發布前端。
+- [x] 保留 Worker／前端版本，先部署後端驗證既有功能，再發布前端。
 - [x] 記錄回復方式；回復程式不撤銷已寫入資料或已送出訊息，不自動刪除正式紀錄。
 
 ## D. 第二階段：CF1 安全修正（分開測試與部署）
 
-- [ ] LINE 簽章失敗回 401，合法事件仍成功。
-- [ ] 停用公開手動排程入口，正常 Cron 不變。
-- [ ] 金鑰移至 Worker Secrets，驗證 LINE／Groq／Notion；輪替受 Git 追蹤過的金鑰，不重寫歷史。
+- [x] LINE 簽章失敗回 401，合法事件仍成功。
+- [x] 停用公開手動排程入口，正常 Cron 不變。
+- [x] 金鑰移至 Worker Secrets，驗證 LINE／Groq／Notion。
+- [ ] 輪替受 Git 追蹤過的金鑰，不重寫歷史；提供者控制台的新憑證操作需帳號擁有者接手完成。
 
 第一階段的新路由驗證不會修復既有路由問題。
 
@@ -68,7 +69,7 @@ HTTP 400 請求或課程資料錯誤、401 登入無效、403 非管理員、404
 
 - inspage：計畫提交 `98e59ca`、前端提交 `0a2c628`；15 項 Node/jsdom 測試及 Vite production build 通過。
 - CF1：原功能基準提交 `f690f1d`（16 項測試）、新 API 提交 `bf34f77`（合計 36 項測試）、預覽及文件提交 `eb537ba`。
-- 從 Cloudflare 下載的正式 Worker 程式另行通過同一套 16 項基準測試；未改正式 Worker。
+- 部署前從 Cloudflare 下載的正式 Worker 程式另行通過同一套 16 項基準測試。
 - 正式 Worker 回復基準版本：`39fafc41-0075-4aa3-81b0-49d7ed55c170`。
 - Firestore 正式規則已唯讀確認：courses 公開讀取；admins 僅本人可讀、用戶端不可寫。
 - 預覽 API：`https://inspage-notion-preview.jefffang-edu.workers.dev/api/notion/courses`。
@@ -76,8 +77,28 @@ HTTP 400 請求或課程資料錯誤、401 登入無效、403 非管理員、404
 - 已經使用者明確授權，建立隔離測試資料庫並將 Notion 金鑰與測試 database ID 設為預覽 Worker Secrets。
 - 測試資料庫：`https://app.notion.com/p/3ec3e0d38baf81b2aeeaf2155a912d3f`（正式資料庫未測試寫入）。
 - 瀏覽器已確認訪客課程視窗不顯示 Notion／刪除按鈕；127.0.0.1 未獲 Firebase 授權，經使用者明確同意切換 localhost 測試。
-- 尚待：實際 Google 管理員登入與完整新增／重複驗證、正式發布、第二階段獨立安全修正與金鑰輪替。
+- 當時待辦的 Google 管理員登入與完整新增／重複驗證已完成，結果如下。
 
 - 瀏覽器實際 Google 管理員登入通過。已修正 Cloudflare 不支援 redirect:error 的問題，改用 manual 並拒絕 3xx；新增回歸測試後 Worker 共 38 項通過。
 - 隔離資料庫新增與再次查重通過，API readback 確認僅一筆、時間 2026-10-02 09:00–12:00 +08:00、講師與 URL 及內文來源正確。
 - 預覽相容日期已與正式環境 2023-12-01 對齊，實際查重仍通過。畫面證據保存在本機忽略目錄 automation/notion-preview-verified.png。
+
+### 2026-10-01：第一階段發布與第二階段準備
+
+- CF1 提交 `3570a41` 已部署為正式 Worker 版本 `5f827270-ce17-473e-aa29-1d61cf007a88`；原 Cron 保留。正式端點健康檢查、允許 origin 的 OPTIONS 204、未登入 POST 401 通過。
+- 前端提交 `be02771` 已透過 PR https://github.com/JeffCodingMentor/inspage/pull/1 合併；GitHub Actions 變數已設定正式 API 網址。其後已確認合併提交 `137c6c7` 的 Pages 工作流程 https://github.com/JeffCodingMentor/inspage/actions/runs/36838496234 成功，正式 JS 使用正式 API、未含預覽端點。
+- 第二階段僅在隔離副本準備修正：LINE 簽章失敗在解析與背景工作之前回 401；原含 test 路徑的手動排程入口回 404；平台 Cron 與新課程 API 路由保留。
+- 修正前 16 項針對入口的測試中，15 項失敗、合法空事件驗證通過；修正後新增至 22 項入口測試，加上原 38 項測試，共 60 項通過。`node --check src/worker.js` 通過；所有外部服務在此階段均使用 mock。
+- 候選 patch 與測試紀錄保存於 `C:/Users/jcfan/.codex/state/plugins/codex-security/scans/line-gemini-bot/artifacts-0927c7c5dd0846ca3b831042fc1e386e675e955f4fb6b7831bbf5bd547161797/artifacts/phase2/`。
+- 獨立唯讀審查未發現具體繞過或回歸；審查者另行重跑 60 項測試全部通過。
+- 自動核准審查曾因用量額度不足而中斷；使用者再次要求繼續後已恢復，後續發布與驗證如下。
+
+### 2026-10-01：第二階段正式部署
+
+- CF1 `84e3764`：恢復 LINE 簽章拒絕並停用手動排程；套用後完整 60 項測試與語法檢查通過。部署版本 `670dcac9-05cc-437c-bbe5-356d34e762e7`。
+- CF1 `7728112`：將 LINE_CHANNEL_ACCESS_TOKEN、LINE_CHANNEL_SECRET、GROQ_API_KEY、NOTION_API_KEY 移至 Cloudflare Secrets；移除 wrangler.toml 明文值、忽略本機憑證檔、更新操作與回復文件。工作目錄乾淨。
+- 使用清理後設定重新部署成功，正式版本 `e8523224-01d1-438b-b7c6-65b286b0ef62`；Cron 仍為 `30 * * * *`。部署後 API readback 確認四組 secret_text 與兩組非敏感 vars，沒有遺失 Secrets。
+- 正式線上檢查通過：健康頁 200、無簽章與未授權課程請求 401、簽章合法空事件 200、原手動入口 GET／POST 404、正式 CORS 204、本機 origin 403。沒有送出 LINE 訊息或測試寫入正式 Notion。
+- LINE bot info、Groq models、Notion 正式 database 的唯讀金鑰驗證均 200；目前 Git 追蹤檔案已不含這四組完整金鑰值，但歷史仍保留，尚須輪替。
+- 正式網站瀏覽器訪客視窗確認不顯示 Notion 與刪除按鈕，畫面保存在本機忽略目錄 automation/notion-production-visitor.png。
+- 唯一未完成項目：輪替提供者端既有金鑰，更新正式 Secrets 及預覽的 NOTION_API_KEY，驗證新值並停用舊值。瀏覽器操作規則要求帳號擁有者接手憑證變更；新值不要貼到聊天或提交 Git。
