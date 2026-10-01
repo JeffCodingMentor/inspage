@@ -58,6 +58,12 @@ HTTP 400 請求或課程資料錯誤、401 登入無效、403 非管理員、404
 - [x] 金鑰移至 Worker Secrets，驗證 LINE／Groq／Notion。
 - [ ] 輪替受 Git 追蹤過的金鑰，不重寫歷史；提供者控制台的新憑證操作需帳號擁有者接手完成。
 
+輪替進度：
+- [x] LINE_CHANNEL_SECRET：帳號擁有者重新發行；更新正式 Secrets 後，新簽章 200、舊簽章 401，LINE 控制台 Verify 顯示 Success。暫存憑證已刪除。
+- [x] LINE_CHANNEL_ACCESS_TOKEN：帳號擁有者重新發行後更新正式 Secrets；新 token 正確對應 Bot @201mqjsx，讀取資訊 200。以 LINE 官方撤銷 API 停用舊 token 後，舊值 401、新值仍 200，暫存憑證已刪除。
+- [ ] GROQ_API_KEY：新金鑰 CF1-LineBot-20261001 已更新正式 Secrets，唯讀 API 回 200；舊金鑰仍回 200，尚待帳號擁有者停用，輪替未完成。
+- [ ] NOTION_API_KEY：更新正式與預覽 Worker，驗證存取與停用舊金鑰。
+
 第一階段的新路由驗證不會修復既有路由問題。
 
 ## 階段紀錄
