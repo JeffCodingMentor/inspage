@@ -620,7 +620,7 @@ body {
 
 .notion-action-area {
   display: flex;
-  flex: 1 1 100%;
+  flex: 0 0 auto;
   flex-wrap: wrap;
   align-items: center;
   gap: 0.6rem;
@@ -631,6 +631,22 @@ body {
   overflow-wrap: anywhere;
 }
 
+.notion-copy-option {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.8rem;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.notion-copy-option input {
+  width: 1rem;
+  height: 1rem;
+  margin: 0;
+  accent-color: #2563eb;
+}
+
 .modal-header-actions {
   flex-wrap: wrap;
 }
@@ -638,4 +654,10 @@ body {
 .modal-header-actions .btn-action {
   flex-shrink: 0;
   white-space: nowrap;
+}
+
+.modal-header-actions > .btn-action,
+.notion-action-area > .btn-action {
+  min-height: 3rem;
+  box-sizing: border-box;
 }
