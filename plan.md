@@ -56,7 +56,14 @@ HTTP 400 請求或課程資料錯誤、401 登入無效、403 非管理員、404
 - [x] LINE 簽章失敗回 401，合法事件仍成功。
 - [x] 停用公開手動排程入口，正常 Cron 不變。
 - [x] 金鑰移至 Worker Secrets，驗證 LINE／Groq／Notion。
-- [ ] 輪替受 Git 追蹤過的金鑰，不重寫歷史；提供者控制台的新憑證操作需帳號擁有者接手完成。
+- [x] 輪替受 Git 追蹤過的金鑰，不重寫歷史；提供者控制台的新憑證操作需帳號擁有者接手完成。
+
+輪替進度：
+
+- [x] LINE_CHANNEL_SECRET：帳號擁有者重新發行；更新正式 Secrets 後，新簽章 200、舊簽章 401，LINE 控制台 Verify 顯示 Success。暫存憑證已刪除。
+- [x] LINE_CHANNEL_ACCESS_TOKEN：帳號擁有者重新發行後更新正式 Secrets；新 token 正確對應 Bot @201mqjsx，讀取資訊 200。以 LINE 官方撤銷 API 停用舊 token 後，舊值 401、新值仍 200，暫存憑證已刪除。
+- [x] GROQ_API_KEY：新金鑰 CF1-LineBot-20261001 已更新正式 Secrets，唯讀 API 回 200；帳號擁有者停用舊金鑰後，已確認 Git 歷史中的舊值回 401。暫存憑證已刪除。
+- [x] NOTION_API_KEY：帳號擁有者在 LineBot 整合輪替新值；正式／隔離資料庫唯讀驗證均 200，Git 舊值 401。透過外部瀏覽器完成縮限權限的 Wrangler OAuth 後，已同步正式與預覽 Worker Secrets，暫存金鑰檔已刪除。管理員預覽新增課程 5684991 成功，再次加入顯示已存在並指向相同 Notion 頁面。
 
 第一階段的新路由驗證不會修復既有路由問題。
 
@@ -101,4 +108,14 @@ HTTP 400 請求或課程資料錯誤、401 登入無效、403 非管理員、404
 - 正式線上檢查通過：健康頁 200、無簽章與未授權課程請求 401、簽章合法空事件 200、原手動入口 GET／POST 404、正式 CORS 204、本機 origin 403。沒有送出 LINE 訊息或測試寫入正式 Notion。
 - LINE bot info、Groq models、Notion 正式 database 的唯讀金鑰驗證均 200；目前 Git 追蹤檔案已不含這四組完整金鑰值，但歷史仍保留，尚須輪替。
 - 正式網站瀏覽器訪客視窗確認不顯示 Notion 與刪除按鈕，畫面保存在本機忽略目錄 automation/notion-production-visitor.png。
-- 唯一未完成項目：輪替提供者端既有金鑰，更新正式 Secrets 及預覽的 NOTION_API_KEY，驗證新值並停用舊值。瀏覽器操作規則要求帳號擁有者接手憑證變更；新值不要貼到聊天或提交 Git。
+- 此階段當時未完成項目（已於下方輪替紀錄完成）：輪替提供者端既有金鑰，更新正式 Secrets 及預覽的 NOTION_API_KEY，驗證新值並停用舊值。瀏覽器操作規則要求帳號擁有者接手憑證變更；新值不要貼到聊天或提交 Git。
+
+
+### 2026-10-01：憑證輪替完成與最終驗證
+
+- LINE channel secret、LINE access token、Groq、Notion 四組憑證均已輪替並更新正式 Worker；Notion 同時更新隔離預覽 Worker。舊 HMAC 與三項提供者 API 憑證均再次確認 401；新值先前分別通過提供者驗證。LINE 平台 webhook Verify 已確認 Success。
+- Cloudflare 原登入過期，內置瀏覽器無法登入；改由系統預設外部瀏覽器完成 Wrangler OAuth。僅申請 account:read、user:read、workers_scripts:write，Wrangler 自動加入 offline_access。兩個 Worker 的 NOTION_API_KEY 更新皆成功，服務已恢復；無待同步金鑰。
+- 新 Notion token 讀取正式及隔離資料庫均 200。隔離预覽管理員新增課程 5684991 成功，再次點擊顯示「此課程已存在」，兩次結果為同一頁面 3ec3e0d3-8baf-8136-9b71-d1b23577097b。測試只寫隔離資料庫。畫面：automation/notion-rotation-verified.png（本機忽略）。
+- 最終線上檢查通過：健康頁 200；無簽章／舊簽章／未登入課程請求 401；原手動入口 404；正式 origin OPTIONS 204、本機 origin 403；發布 JS 使用正式 API。Cloudflare 唯讀確認正式四組憑證及預覽 Notion 憑證均為 secret_text，Cron 保持 30 * * * *。
+- 前端 15 項測試及 production build、Worker 60 項測試均已通過；此收尾階段僅更新 Secrets 與文件，沒有改動程式碼。未實際發送 LINE 訊息；完整 LINE／Groq 流程由 mock 回歸測試涵蓋，線上以簽章空事件與提供者唯讀 API 驗證。
+- 所有輪替暫存憑證檔已刪除；Git 歷史保留但其中舊值已失效。保留隔離測試資料庫與測試紀錄供追溯。
