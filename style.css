@@ -620,6 +620,7 @@ body {
 
 .notion-action-area {
   display: flex;
+  flex: 1 1 100%;
   flex-wrap: wrap;
   align-items: center;
   gap: 0.6rem;
@@ -628,4 +629,13 @@ body {
 .notion-status {
   font-size: 0.875rem;
   overflow-wrap: anywhere;
+}
+
+.modal-header-actions {
+  flex-wrap: wrap;
+}
+
+.modal-header-actions .btn-action {
+  flex-shrink: 0;
+  white-space: nowrap;
 }

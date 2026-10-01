@@ -41,5 +41,25 @@ test('actual calendar preserves interests/navigation and synchronizes admin acti
   assert.equal(doc.getElementById('notionActionArea').hidden, true);
   assert.equal(doc.getElementById('btnDeleteCourse').hidden, true);
   doc.getElementById('modalClose').click(); assert.equal(doc.getElementById('modalOverlay').classList.contains('active'), false);
+  // A slow permission lookup must never restore admin UI after logout.
+  let resolveAdmin;
+  win.fetch = async () => new Promise(resolve => { resolveAdmin = resolve; });
+  auth.currentUser = user;
+  const checking = authCallback(user);
+  await Promise.resolve();
+  auth.currentUser = null;
+  await authCallback(null);
+  resolveAdmin({ ok: true });
+  await checking;
+  doc.querySelector('.course-item').click();
+  assert.equal(doc.getElementById('notionActionArea').hidden, true);
+  // Existing deletion still removes the selected card after successful API response.
+  let deleted = false;
+  win.fetch = async (_url, options = {}) => { if (options.method === 'DELETE') deleted = true; return { ok: true }; };
+  auth.currentUser = user;
+  await authCallback(user);
+  await doc.getElementById('btnDeleteCourse').onclick();
+  assert.equal(deleted, true);
+  assert.equal(doc.querySelectorAll('.course-item').length, 1);
   dom.window.close();
 });

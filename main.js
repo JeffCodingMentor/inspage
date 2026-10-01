@@ -592,6 +592,7 @@ async function initCalendar() {
           courseEls.forEach(el => el.remove());
 
           // 3. 關閉彈窗並提示
+          notionView?.dispose();
           modalOverlay.classList.remove('active');
           alert(`✅ 課程「${cleanName}」已成功自資料庫刪除！`);
         } catch (err) {
