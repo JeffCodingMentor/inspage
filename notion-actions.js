@@ -41,7 +41,7 @@ export function createNotionActions({ getUser, endpoint, fetchImpl = (...args) =
         const user = getUser();
         if (!mounted || !user || pending.has(courseId)) return;
         let copyResult = null;
-        if (copyCheckbox.checked) {
+        if (copyCheckbox.checked && course) {
           const link = course.rawLink || 'http://tbd/tbd';
           const cleanName = course.name.replace(/^([\[【].*?[\]】]\s*)+/g, '').trim();
           const textToCopy = `課程: ${cleanName}\n時間: ${course.dateStr} ${course.timeRange}\n連結: ${link}\n主講: ${course.speaker}\n主辦: 教師研習`;
