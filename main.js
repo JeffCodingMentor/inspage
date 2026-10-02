@@ -373,7 +373,7 @@ async function initCalendar() {
 
   const today = new Date();
   
-  // Fetch courses dynamically from GitHub and get the computed start date
+  // Fetch courses dynamically from Firestore and get the computed start date
   const { courses, startDate, totalWeeks } = await fetchCoursesDynamically();
   const interested = getInterestedCourses();
 
