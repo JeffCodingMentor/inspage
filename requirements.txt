@@ -1,0 +1,2 @@
+# Firebase Admin SDK for scripts/upload_courses.py; matches the local installed version.
+firebase-admin==7.5.0
