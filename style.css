@@ -113,8 +113,17 @@ body {
 .date-header {
   display: flex;
   justify-content: flex-end;
+  align-items: center;
+  gap: 0.25rem;
   margin-bottom: 0.5rem;
   padding-top: 0.25rem;
+}
+
+.month-label {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--color-text-muted);
+  margin-right: auto;
 }
 
 .date-number {
@@ -129,8 +138,11 @@ body {
 .calendar-day.today .date-number {
   background: var(--color-today-red);
   color: #fff;
-  border-radius: 50%;
-  width: 24px;
+  border-radius: 9999px;
+  min-width: 24px;
+  width: auto;
+  padding: 0 4px;
+  box-sizing: border-box;
   height: 24px;
   font-weight: 600;
 }
@@ -433,6 +445,9 @@ body {
     justify-content: flex-start;
     margin-bottom: 0.8rem;
     padding-top: 0;
+  }
+  .month-label {
+    font-size: 1rem;
   }
   .date-number {
     font-size: 1rem;

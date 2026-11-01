@@ -428,7 +428,8 @@ async function initCalendar() {
     daysHTML.push(`
       <div class="${classes}">
         <div class="date-header">
-          <span class="date-number">${dayOfMonth === 1 ? (currentDay.getMonth() + 1) + '月 ' + dayOfMonth : dayOfMonth}</span>
+          ${dayOfMonth === 1 ? `<span class="month-label">${currentDay.getMonth() + 1}月</span>` : ''}
+          <span class="date-number">${dayOfMonth}</span>
         </div>
         <div class="courses-container">
           ${coursesHTML}

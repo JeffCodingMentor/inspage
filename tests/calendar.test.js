@@ -63,3 +63,30 @@ test('actual calendar preserves interests/navigation and synchronizes admin acti
   assert.equal(doc.querySelectorAll('.course-item').length, 1);
   dom.window.close();
 });
+
+test('first day of month renders month-label and clean date-number without overflow', async () => {
+  const html = await readFile(new URL('../index.html', import.meta.url), 'utf8');
+  let source = await readFile(new URL('../main.js', import.meta.url), 'utf8');
+  source = source.replace(/^import .*\r?\n/gm, '').replace(/import\.meta\.env/g, 'window.testEnv').replace("document.addEventListener('DOMContentLoaded', initCalendar);", 'window.initialize = initCalendar;');
+  const dom = new JSDOM(html, { url: 'https://jeffcodingmentor.github.io/inspage/', runScripts: 'outside-only' });
+  const win = dom.window;
+  Object.assign(win, {
+    testEnv: {}, createNotionActions, getApps: () => [], initializeApp: () => ({}), getAuth: () => ({ currentUser: null }),
+    onAuthStateChanged: () => {},
+    fetch: async () => ({ ok: true, json: async () => ({ documents: [] }) }),
+    confirm: () => true, alert: () => {},
+  });
+  win.eval(source);
+  await win.initialize();
+  const doc = win.document;
+
+  const monthLabels = doc.querySelectorAll('.date-header .month-label');
+  assert.ok(monthLabels.length >= 1, 'Should render at least one month-label in calendar');
+  for (const label of monthLabels) {
+    assert.match(label.textContent, /^([1-9]|1[0-2])月$/);
+    const dateNumber = label.parentElement.querySelector('.date-number');
+    assert.equal(dateNumber.textContent.trim(), '1', 'Day number on 1st of month must be purely "1"');
+  }
+
+  dom.window.close();
+});
